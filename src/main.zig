@@ -10,7 +10,7 @@ const state = struct {
     var bind: sg.Bindings = .{};
     var pip: sg.Pipeline = .{};
     var shapes_vertex = std.BoundedArray(shd.Shapevertexdata, MAX_SHAPES).init(0) catch unreachable;
-    var transforms = std.BoundedArray(Transform, MAX_TRANSFORMS).init(0) catch unreachable;
+    var transforms = std.BoundedArray(shd.Transform, MAX_TRANSFORMS).init(0) catch unreachable;
     var shapes = std.BoundedArray(shd.Shape, MAX_SHAPES).init(0) catch unreachable;
     var paints = std.BoundedArray(shd.Paint, MAX_SHAPES).init(0) catch unreachable;
 };
@@ -18,7 +18,13 @@ const state = struct {
 const MAX_SHAPES = 2048;
 const MAX_TRANSFORMS = 512;
 
-const Transform = [4][4]f32;
+const Transform = struct {
+    matrix: [4][4]f32,
+
+    pub fn unfold(self: *Transform) [16]f32 {
+        return @as([16]f32, @bitCast(self.matrix));
+    }
+};
 
 export fn init() void {
     sg.setup(.{
@@ -33,16 +39,6 @@ export fn init() void {
     const shapes_buffer: sg.Buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(shd.Shape) * MAX_SHAPES });
 
     const paints_buffer: sg.Buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(shd.Paint) * MAX_SHAPES });
-
-    // create vertex buffer with triangle vertices
-    state.bind.vertex_buffers[0] = sg.makeBuffer(.{
-        .data = sg.asRange(&[_]f32{
-            // positions         colors
-            0.0,  0.5,  0.5, 1.0, 0.0, 0.0, 1.0,
-            0.5,  -0.5, 0.5, 0.0, 1.0, 0.0, 1.0,
-            -0.5, -0.5, 0.5, 0.0, 0.0, 1.0, 1.0,
-        }),
-    });
 
     state.bind.storage_buffers[0] = shapes_vertex_buffer;
     state.bind.storage_buffers[1] = transforms_buffer;
