@@ -21,8 +21,68 @@ pub const Vec2 = extern struct {
         return Vec2{ .x = 0.0, .y = 0.0 };
     }
 
+    pub fn inf() Vec2 {
+        return Vec2{ .x = math.inf(f32), .y = math.inf(f32) };
+    }
+
     pub fn new(x: f32, y: f32) Vec2 {
         return Vec2{ .x = x, .y = y };
+    }
+
+    pub fn lerp(self: *const Vec2, other: Vec2, time: f32) Vec2 {
+    	return self.add(other.sub(self).scale(time));
+    }
+
+    pub fn min(vecs: anytype) Vec2 {
+        const fields = @typeInfo(@TypeOf(vecs)).@"struct".fields;
+        comptime {
+            if (fields.len == 0) @compileError("Need at least one Vec2");
+        }
+
+        var result = vecs[0];
+        inline for (fields[1..], 0..) |_, i| {
+            const v = vecs[i + 1];
+            result.x = @min(result.x, v.x);
+            result.y = @min(result.y, v.y);
+        }
+        return result;
+    }
+
+    pub fn max(vecs: anytype) Vec2 {
+        const fields = @typeInfo(@TypeOf(vecs)).@"struct".fields;
+        comptime {
+            if (fields.len == 0) @compileError("Need at least one Vec2");
+        }
+
+        var result = vecs[0];
+        inline for (fields[1..], 0..) |_, i| {
+            const v = vecs[i + 1];
+            result.x = @max(result.x, v.x);
+            result.y = @max(result.y, v.y);
+        }
+        return result;
+    }
+
+    pub fn sub(self: Vec2, other: anytype) Vec2 {
+    	if (@TypeOf(other) == f32) {
+     		return Vec2{.x = self.x - other, .y = self.y - other};
+    	} else if (@TypeOf(other) == Vec2) {
+     		return Vec2{.x = self.x - other.x, .y = self.y - other.y};
+    	}
+        return Vec2{ .x = self.x - other.x, .y = self.y - other.y };
+    }
+
+    pub fn add(self: Vec2, other: anytype) Vec2 {
+    	if (@TypeOf(other) == f32) {
+     		return Vec2{.x = self.x + other, .y = self.y + other};
+    	} else if (@TypeOf(other) == Vec2) {
+     		return Vec2{.x = self.x + other.x, .y = self.y + other.y};
+    	}
+        return Vec2{ .x = self.x + other.x, .y = self.y + other.y };
+    }
+
+    pub fn scale(self: Vec2, factor: f32) Vec2 {
+        return Vec2{ .x = self.x * factor, .y = self.y * factor };
     }
 };
 

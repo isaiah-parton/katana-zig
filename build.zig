@@ -62,6 +62,8 @@ pub fn build(b: *std.Build) !void {
         .root_module = lib_mod,
     });
 
+    lib.step.dependOn(shader_step);
+
     b.installArtifact(lib);
 
     const exe = b.addExecutable(.{

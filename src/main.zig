@@ -5,11 +5,10 @@ const sapp = sokol.app;
 const sglue = sokol.glue;
 const shd = @import("shaders/shader.glsl.zig");
 const std = @import("std");
+const math = @import("math.zig");
 const Context = @import("context.zig");
 const Color = @import("color.zig");
 const Shape = @import("shape.zig");
-const MAX_SHAPES = @import("context.zig").MAX_SHAPES;
-const MAX_TRANSFORMS = @import("context.zig").MAX_TRANSFORMS;
 
 const state = struct {
     var bind: sg.Bindings = .{};
@@ -32,18 +31,21 @@ export fn init() void {
         .logger = .{ .func = slog.func },
     });
 
-    const shape_spatials_buffer: sg.Buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(shd.ShapeSpatial) * MAX_SHAPES, .label = "Shape vertices" });
+    const shape_spatials_buffer: sg.Buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(shd.ShapeSpatial) * Context.MAX_SHAPES, .label = "Shape vertices" });
 
-    const transforms_buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(Transform) * MAX_TRANSFORMS, .label = "Transforms" });
+    const transforms_buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(Transform) * Context.MAX_TRANSFORMS, .label = "Transforms" });
 
-    const shapes_buffer: sg.Buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(shd.Shape) * MAX_SHAPES, .label = "Shapes" });
+    const shapes_buffer: sg.Buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(shd.Shape) * Context.MAX_SHAPES, .label = "Shapes" });
 
-    const paints_buffer: sg.Buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(shd.Paint) * MAX_SHAPES, .label = "Paints" });
+    const paints_buffer: sg.Buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(shd.Paint) * Context.MAX_SHAPES, .label = "Paints" });
+
+    const vertices_buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(math.Vec2) * Context.MAX_VERTICES, .label = "Vertices" });
 
     state.bind.storage_buffers[0] = shape_spatials_buffer;
     state.bind.storage_buffers[1] = transforms_buffer;
     state.bind.storage_buffers[2] = shapes_buffer;
     state.bind.storage_buffers[3] = paints_buffer;
+    state.bind.storage_buffers[4] = vertices_buffer;
 
     // create a shader and pipeline object
     state.pip = sg.makePipeline(.{
@@ -93,8 +95,17 @@ export fn frame() void {
     state.ctx.transforms.append(shd.Transform{ .matrix = .{ 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 } }) catch unreachable;
 
     // Test drawing stuff
-    Shape.circle(.{50, 50}, 50).fill(Color.RED).draw(&state.ctx);
-    Shape.circle(.{150, 200}, 40).fill(Color.BLUE).draw(&state.ctx);
+    Shape.circle(.new(80, 480), 50).fill(Color.RED).draw(&state.ctx);
+    Shape.rect(.new(300, 100), .new(380, 250)).rounded(4, 20, 20, 4).fill(Color.WHITE).draw(&state.ctx);
+    Shape.bezier(.new(100, 100), .new(200, 100), .new(200, 200)).stroke(Color.BLUE, 4).draw(&state.ctx);
+    Shape.line(.new(100, 300), .new(200, 200)).stroke(Color.RED, 4).draw(&state.ctx);
+
+    var path = Shape.path(.{.origin = .new(100, 100)});
+    path.quad_to(.new(150, 50), .new(200, 100));
+    path.quad_to(.new(250, 150), .new(200, 200));
+    path.quad_to(.new(150, 250), .new(100, 200));
+    path.quad_to(.new(50, 150), .new(100, 100));
+    path.stroke(Color.RED, 4).draw(&state.ctx);
 
     if (state.ctx.shape_spatials.len > 0) {
         sg.updateBuffer(state.bind.storage_buffers[0], sg.Range{ .ptr = @ptrCast(&state.ctx.shape_spatials.buffer), .size = @intCast(state.ctx.shape_spatials.len * @sizeOf(shd.ShapeSpatial)) });
@@ -107,6 +118,9 @@ export fn frame() void {
     }
     if (state.ctx.paints.len > 0) {
         sg.updateBuffer(state.bind.storage_buffers[3], sg.Range{ .ptr = @ptrCast(&state.ctx.paints.buffer), .size = @intCast(state.ctx.paints.len * @sizeOf(shd.Paint)) });
+    }
+    if (state.ctx.vertices.len > 0) {
+    	sg.updateBuffer(state.bind.storage_buffers[4], sg.Range{.ptr = @ptrCast(&state.ctx.vertices.buffer), .size = @intCast(state.ctx.vertices.len * @sizeOf(math.Vec2))});
     }
 
     var pass_action = sg.PassAction{};
@@ -126,6 +140,7 @@ export fn frame() void {
     state.ctx.shapes.clear();
     state.ctx.transforms.clear();
     state.ctx.paints.clear();
+    state.ctx.vertices.clear();
 }
 
 export fn cleanup() void {
@@ -140,7 +155,7 @@ pub fn main() void {
         .width = 640,
         .height = 480,
         .icon = .{ .sokol_default = true },
-        .window_title = "Lizard Farce Window",
+        .window_title = "new world order",
         .logger = .{ .func = slog.func },
     });
 }

@@ -1,10 +1,12 @@
 const std = @import("std");
 const shd = @import("shaders/shader.glsl.zig");
+const math = @import("math.zig");
 const Color = @import("color.zig");
 
 pub const MAX_SHAPES = 2048;
 pub const MAX_TRANSFORMS = 512;
 pub const MAX_PAINTS = 512;
+pub const MAX_VERTICES = 1024;
 
 pub const Transform = struct {
     matrix: [4][4]f32,
@@ -20,12 +22,17 @@ pub const Transform = struct {
 
 const Self = @This();
 
+// Shapes
 shape_spatials: std.BoundedArray(shd.ShapeSpatial, MAX_SHAPES),
 shapes: std.BoundedArray(shd.Shape, MAX_SHAPES),
+// Transform matrices
 transforms: std.BoundedArray(shd.Transform, MAX_TRANSFORMS),
-paints: std.BoundedArray(shd.Paint, MAX_PAINTS),
 last_transform: ?Transform = null,
 transform_stack: std.ArrayList(Transform),
+// Fill and stroke styles for shapes
+paints: std.BoundedArray(shd.Paint, MAX_PAINTS),
+// Vertices for paths
+vertices: std.BoundedArray(math.Vec2, MAX_VERTICES),
 
 pub fn init() Self {
     return Self{
@@ -33,6 +40,7 @@ pub fn init() Self {
         .shapes = .{},
         .transforms = .{},
         .paints = .{},
+        .vertices = .{},
         .transform_stack = std.ArrayList(Transform).init(std.heap.page_allocator),
     };
 }
