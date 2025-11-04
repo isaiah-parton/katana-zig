@@ -110,9 +110,10 @@ layout(std430, binding = 4) readonly buffer verticesBuffer
 	Vertex vertices[];
 };
 
-// layout(binding=4) uniform sampler atlas_sampler;
-// layout(binding=5) uniform texture2D atlas_tex;
-// layout(binding=6) uniform texture2D user_tex;
+layout(binding = 2) uniform texture2D msdf_texture;
+layout(binding = 3) uniform sampler msdf_sampler;
+layout(binding = 4) uniform texture2D paint_texture;
+layout(binding = 5) uniform sampler paint_sampler;
 
 in vec2 p;
 in vec2 uv;
@@ -267,26 +268,26 @@ bool test_line(vec2 p, vec2 A, vec2 B) {
 }
 
 // Text rendering functions
-// float median(float r, float g, float b) {
-//   return max(min(r, g), min(max(r, g), b));
-// }
+float median(float r, float g, float b) {
+  return max(min(r, g), min(max(r, g), b));
+}
 
-// float screen_px_range(vec2 texcoord) {
-//   vec2 screen_tex_size = vec2(1.0) / fwidth(texcoord);
-//   return max(0.5 * dot(vec2(text_unit_range), screen_tex_size), 2.0);
-// }
+float screen_px_range(vec2 texcoord) {
+  vec2 screen_tex_size = vec2(1.0) / fwidth(texcoord);
+  return max(0.5 * dot(vec2(text_unit_range), screen_tex_size), 2.0);
+}
 
-// float contour(float dist, float bias, vec2 texcoord) {
-//   float width = screen_px_range(texcoord);
-//   float e = width * (dist - 0.5 + text_in_bias) + 0.5 + (text_out_bias + bias);
-//   return smoothstep(0.0, 1.0, e);
-// }
+float contour(float dist, float bias, vec2 texcoord) {
+  float width = screen_px_range(texcoord);
+  float e = width * (dist - 0.5 + text_in_bias) + 0.5 + (text_out_bias + bias);
+  return smoothstep(0.0, 1.0, e);
+}
 
-// float sample_msdf(vec2 uv, float bias) {
-//   vec3 msd = texture(sampler2D(atlas_tex, atlas_sampler), uv).rgb;
-//   float dist = median(msd.r, msd.g, msd.b);
-//   return contour(dist, bias, uv);
-// }
+float sample_msdf(vec2 uv, float bias) {
+  vec3 msd = texture(sampler2D(msdf_texture, msdf_sampler), uv).rgb;
+  float dist = median(msd.r, msd.g, msd.b);
+  return contour(dist, bias, uv);
+}
 
 // HSL to RGB conversion
 float hue_to_rgb(float p, float q, float tt) {
@@ -329,6 +330,12 @@ float sd_shape(Shape shape, vec2 pos) {
         // Box
         vec2 center = 0.5 * (shape.cv0 + shape.cv1);
         d = sd_box(pos - center, (shape.cv1 - shape.cv0) * 0.5, shape.radius);
+    } else if (shape.kind == 4u) {
+        // Line segment
+        d = sd_line(pos, shape.cv0, shape.cv1) - shape.width;
+    } else if (shape.kind == 5u) {
+        // Bezier
+        d = sd_bezier(pos, shape.cv0, shape.cv1, shape.cv2) - shape.width;
     } else if (shape.kind == 6u) {
         // Path
         float s = 1.0;
@@ -362,12 +369,20 @@ float sd_shape(Shape shape, vec2 pos) {
             }
         }
         d = d * s;
-    } else if (shape.kind == 5u) {
-        // Bezier
-        d = sd_bezier(pos, shape.cv0, shape.cv1, shape.cv2) - shape.width;
-    } else if (shape.kind == 4u) {
-        // Line segment
-        d = sd_line(pos, shape.cv0, shape.cv1) - shape.width;
+    } else if (shape.kind == 7u) {
+    	// MSDF
+    	// Supersampling parameters
+    	float dscale = 0.354;
+     	vec2 uv = shape.cv0;
+      	float bias = shape.radius[0];
+		vec2 duv = dscale * (dFdxFine(uv) + dFdyFine(uv));
+		vec4 box = vec4(uv - duv, uv + duv);
+		// Supersample the sdf texture
+		float asum = sample_msdf(box.xy, bias) + sample_msdf(box.zw, bias) + sample_msdf(box.xw, bias) + sample_msdf(box.zy, bias);
+		// Determine opacity
+		float alpha = (sample_msdf(uv, bias) + 0.5 * asum) / 3.0;
+		// Reflect opacity with distance result
+		d = 0.5 - alpha;
     }
 
     // Stroke handling
@@ -437,6 +452,9 @@ void main() {
     if (paint.kind == 1u) {
         // Solid color
         out_color = paint.col0;
+    } else if (paint.kind == 2u) {
+    	// Image
+     	out_color = texture(sampler2D(paint_texture, paint_sampler), uv) * paint.col0;
     } else if (paint.kind == 5u) {
         // Linear gradient
         vec2 dir = paint.cv1 - paint.cv0;

@@ -13,7 +13,7 @@ const Shape = @import("shape.zig");
 const state = struct {
     var bind: sg.Bindings = .{};
     var pip: sg.Pipeline = .{};
-    var ctx: Context = .init();
+    var ctx: Context = undefined;
 };
 
 const Transform = struct {
@@ -25,7 +25,6 @@ const Transform = struct {
 };
 
 export fn init() void {
-    state.ctx = .init();
     sg.setup(.{
         .environment = sglue.environment(),
         .logger = .{ .func = slog.func },
@@ -40,6 +39,32 @@ export fn init() void {
     const paints_buffer: sg.Buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(shd.Paint) * Context.MAX_SHAPES, .label = "Paints" });
 
     const vertices_buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(math.Vec2) * Context.MAX_VERTICES, .label = "Vertices" });
+
+    const empty_data = std.heap.page_allocator.alloc(u8, 2048 * 2048 * 4) catch unreachable;
+    defer std.heap.page_allocator.free(empty_data);
+    @memset(empty_data, 0);
+
+    var image_data = sg.ImageData{};
+    image_data.subimage[0][0] = .{.ptr = empty_data.ptr, .size = empty_data.len};
+
+    const msdf_image = sg.makeImage(.{ .pixel_format = .RGBA8, .width = 2048, .height = 2048, .type = ._2D, .usage = .{ }, .data = image_data });
+    const paint_image = sg.makeImage(.{ .pixel_format = .RGBA8, .width = 2048, .height = 2048, .type = ._2D, .usage = .{ }, .data = image_data });
+
+    // sg.updateImage(msdf_image, image_data);
+    // sg.updateImage(paint_image, image_data);
+
+    state.ctx = .init(msdf_image, paint_image);
+
+    std.log.info("{?}", .{sg.queryImageState(msdf_image)});
+    std.log.info("{?}", .{sg.queryImageState(paint_image)});
+
+    const msdf_sampler = sg.makeSampler(.{.label = "MSDF Sampler", .min_filter = .LINEAR, .mag_filter = .LINEAR, .wrap_u = .CLAMP_TO_EDGE, .wrap_v = .CLAMP_TO_EDGE});
+    const paint_sampler = sg.makeSampler(.{.label = "Paint Sampler", .min_filter = .LINEAR, .mag_filter = .LINEAR, .wrap_u = .CLAMP_TO_EDGE, .wrap_v = .CLAMP_TO_EDGE});
+
+    state.bind.images[shd.shaderImageSlot("msdf_texture").?] = msdf_image;
+    state.bind.images[shd.shaderImageSlot("paint_texture").?] = paint_image;
+    state.bind.samplers[shd.shaderSamplerSlot("msdf_sampler").?] = msdf_sampler;
+    state.bind.samplers[shd.shaderSamplerSlot("paint_sampler").?] = paint_sampler;
 
     state.bind.storage_buffers[0] = shape_spatials_buffer;
     state.bind.storage_buffers[1] = transforms_buffer;
@@ -152,8 +177,8 @@ pub fn main() void {
         .init_cb = init,
         .frame_cb = frame,
         .cleanup_cb = cleanup,
-        .width = 640,
-        .height = 480,
+        .width = 800,
+        .height = 600,
         .icon = .{ .sokol_default = true },
         .window_title = "new world order",
         .logger = .{ .func = slog.func },

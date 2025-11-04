@@ -14,7 +14,7 @@ pub const Kind = enum {
     line,
     bezier,
     path,
-    // msdf,
+    msdf,
 };
 
 const Variant = union(Kind) {
@@ -39,7 +39,13 @@ const Variant = union(Kind) {
 	path: struct {
 		origin: math.Vec2,
 		points: std.ArrayList(math.Vec2),
-	}
+	},
+	msdf: struct {
+		top_left: math.Vec2,
+		bottom_right: math.Vec2,
+		source_top_left: math.Vec2,
+		source_bottom_right: math.Vec2,
+	},
 };
 
 variant: Variant,
@@ -283,6 +289,29 @@ pub fn draw(self: Self, ctx: *Context) void {
 				.width = self.width,
 				.start = @intCast(first_vertex),
 				.count = @intCast(@divFloor(info.points.items.len, 3)),
+				.stroke = @intFromBool(self.outlined),
+				.paint = @intCast(ctx.paints.len - 1)
+			}) catch unreachable;
+		},
+		Variant.msdf => |info| {
+			ctx.shape_spatials.append(.{
+				.quad_min = info.top_left,
+				.quad_max = info.bottom_right,
+				.tex_min = info.source_top_left,
+				.tex_max = info.source_bottom_right,
+				.xform = 0,
+			}) catch unreachable;
+			ctx.shapes.append(.{
+				.kind = @intFromEnum(self.variant),
+				.mode = 0,
+				.next = 0,
+				.cv0 = math.Vec2.zero(),
+				.cv1 = math.Vec2.zero(),
+				.cv2 = math.Vec2.zero(),
+				.radius = .{0, 0, 0, 0},
+				.width = self.width,
+				.start = 0,
+				.count = 0,
 				.stroke = @intFromBool(self.outlined),
 				.paint = @intCast(ctx.paints.len - 1)
 			}) catch unreachable;

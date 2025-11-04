@@ -1,5 +1,7 @@
 const std = @import("std");
 const shd = @import("shaders/shader.glsl.zig");
+const sokol = @import("sokol");
+const sg = sokol.gfx;
 const math = @import("math.zig");
 const Color = @import("color.zig");
 
@@ -33,8 +35,11 @@ transform_stack: std.ArrayList(Transform),
 paints: std.BoundedArray(shd.Paint, MAX_PAINTS),
 // Vertices for paths
 vertices: std.BoundedArray(math.Vec2, MAX_VERTICES),
+// MSDF data for shapes
+msdf_image: sg.Image,
+paint_image: sg.Image,
 
-pub fn init() Self {
+pub fn init(msdf_image: sg.Image, paint_image: sg.Image) Self {
     return Self{
         .shape_spatials = .{},
         .shapes = .{},
@@ -42,6 +47,8 @@ pub fn init() Self {
         .paints = .{},
         .vertices = .{},
         .transform_stack = std.ArrayList(Transform).init(std.heap.page_allocator),
+        .msdf_image = msdf_image,
+        .paint_image = paint_image,
     };
 }
 

@@ -16,7 +16,7 @@ pub fn build(b: *std.Build) !void {
             .glsl430 = false,
             .glsl410 = true,
             .glsl310es = false,
-            .glsl300es = true,
+            .glsl300es = false,
             .metal_macos = true,
             .hlsl5 = true,
             .wgsl = true,
