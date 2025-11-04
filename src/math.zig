@@ -13,6 +13,19 @@ fn radians(deg: f32) f32 {
     return deg * (math.pi / 180.0);
 }
 
+pub const Rect = struct {
+	left: f32,
+	top: f32,
+	right: f32,
+	bottom: f32,
+
+	const Self = @This();
+
+	pub fn new(left: f32, top: f32, right: f32, bottom: f32) Self {
+		return Self{ .left = left, .top = top, .right = right, .bottom = bottom };
+	}
+};
+
 pub const Vec2 = extern struct {
     x: f32,
     y: f32,
@@ -79,6 +92,20 @@ pub const Vec2 = extern struct {
      		return Vec2{.x = self.x + other.x, .y = self.y + other.y};
     	}
         return Vec2{ .x = self.x + other.x, .y = self.y + other.y };
+    }
+
+    pub fn div(self: Vec2, other: anytype) Vec2 {
+    	if (@TypeOf(other) == Vec2) {
+     		return Vec2{.x = self.x / other.x, .y = self.y / other.y};
+    	}
+     	return Vec2{.x = self.x / other, .y = self.y / other};
+    }
+
+    pub fn mul(self: Vec2, other: anytype) Vec2 {
+    	if (@TypeOf(other) == Vec2) {
+     		return Vec2{.x = self.x * other.x, .y = self.y * other.y};
+     	}
+     	return Vec2{.x = self.x * other, .y = self.y * other};
     }
 
     pub fn scale(self: Vec2, factor: f32) Vec2 {

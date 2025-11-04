@@ -258,35 +258,35 @@ bool test_bezier(vec2 p, vec2 A, vec2 B, vec2 C) {
 }
 
 bool test_line(vec2 p, vec2 A, vec2 B) {
-  int cs = int(A.y < p.y) * 2 + int(B.y < p.y);
-  if (cs == 0 || cs == 3) {
-  	return false;
-  }
-  vec2 v = B - A;
-  float t = (p.y - A.y) / v.y;
-  return (A.x + t * v.x) > p.x;
+	int cs = int(A.y < p.y) * 2 + int(B.y < p.y);
+	if (cs == 0 || cs == 3) {
+		return false;
+	}
+	vec2 v = B - A;
+	float t = (p.y - A.y) / v.y;
+	return (A.x + t * v.x) > p.x;
 }
 
 // Text rendering functions
 float median(float r, float g, float b) {
-  return max(min(r, g), min(max(r, g), b));
+	return max(min(r, g), min(max(r, g), b));
 }
 
 float screen_px_range(vec2 texcoord) {
-  vec2 screen_tex_size = vec2(1.0) / fwidth(texcoord);
-  return max(0.5 * dot(vec2(text_unit_range), screen_tex_size), 2.0);
+	vec2 screen_tex_size = vec2(1.0) / fwidth(texcoord);
+	return max(0.5 * dot(vec2(text_unit_range), screen_tex_size), 2.0);
 }
 
 float contour(float dist, float bias, vec2 texcoord) {
-  float width = screen_px_range(texcoord);
-  float e = width * (dist - 0.5 + text_in_bias) + 0.5 + (text_out_bias + bias);
-  return smoothstep(0.0, 1.0, e);
+	float width = screen_px_range(texcoord);
+	float e = width * (dist - 0.5 + text_in_bias) + 0.5 + (text_out_bias + bias);
+	return smoothstep(0.0, 1.0, e);
 }
 
 float sample_msdf(vec2 uv, float bias) {
-  vec3 msd = texture(sampler2D(msdf_texture, msdf_sampler), uv).rgb;
-  float dist = median(msd.r, msd.g, msd.b);
-  return contour(dist, bias, uv);
+	vec3 msd = texture(sampler2D(msdf_texture, msdf_sampler), uv).rgb;
+	float dist = median(msd.r, msd.g, msd.b);
+	return contour(dist, bias, uv);
 }
 
 // HSL to RGB conversion
@@ -373,7 +373,6 @@ float sd_shape(Shape shape, vec2 pos) {
     	// MSDF
     	// Supersampling parameters
     	float dscale = 0.354;
-     	vec2 uv = shape.cv0;
       	float bias = shape.radius[0];
 		vec2 duv = dscale * (dFdxFine(uv) + dFdyFine(uv));
 		vec4 box = vec4(uv - duv, uv + duv);

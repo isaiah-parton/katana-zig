@@ -1,31 +1,63 @@
 const math = @import("math.zig");
 const std = @import("std");
+const zstbi = @import("zstbi");
 const json = @import("std").json;
 
+const Self = @This();
+
 const Rect = struct {
-	top_left: math.Vec2,
-	bottom_right: math.Vec2,
+	left: f32,
+	top: f32,
+	right: f32,
+	bottom: f32,
+
+	pub fn zero() Rect {
+		return Rect{ .left = 0, .top = 0, .right = 0, .bottom = 0 };
+	}
 };
 
 const Glyph = struct {
-	source: Rect,
-	bounds: Rect,
-	advance: f32,
+	unicode: i32 = 0,
+	advance: f32 = 0,
+	atlasBounds: Rect = .zero(),
+	planeBounds: Rect = .zero(),
 };
 
-first_rune: i32,
-size: f32,
-space_advance: f32,
-ascend: f32,
-descend: f32,
-line_height: f32,
-distance_range: f32,
+firstGlyph: i32 = 0,
+atlas: struct {
+	distanceRange: f32 = 0,
+	size: f32 = 0,
+},
+metrics: struct {
+	emSize: f32 = 0,
+	lineHeight: f32 = 0,
+	ascender: f32 = 0,
+	descender: f32 = 0,
+	underlineY: f32 = 0,
+	underlineThickness: f32 = 0,
+},
 glyphs: []Glyph,
-placeholder_glyph: Glyph,
+image: zstbi.Image = undefined,
+rect: math.Rect = undefined,
 
-pub fn load_from_memory(image_data: []u8, json_data: []u8) !@This() {
-	const value = (try json.parseFromSlice(json.Value, std.heap.page_allocator, json_data, .{})).value;
+pub fn loadFromMemory(image_data: []u8, json_data: []u8) !Self {
+	var data = (try json.parseFromSlice(Self, std.heap.page_allocator, json_data, .{ .ignore_unknown_fields = true })).value;
+	data.firstGlyph = data.glyphs[0].unicode;
+	data.image = try zstbi.Image.loadFromMemory(image_data, 4);
+	return data;
+}
 
-	const atlas_object = value.object.get("atlas").?;
+pub fn loadFromFiles(image_path: []const u8, json_path: []const u8) !Self {
+	const json_data = try std.fs.cwd().readFileAlloc(std.heap.page_allocator, json_path, std.math.maxInt(usize));
+	defer std.heap.page_allocator.free(json_data);
 
+	const image_data = try std.fs.cwd().readFileAlloc(std.heap.page_allocator, image_path, std.math.maxInt(usize));
+	defer std.heap.page_allocator.free(image_data);
+
+	return try loadFromMemory(image_data, json_data);
+}
+
+pub fn getGlyph(self: *const Self, unicode: i32) ?Glyph {
+	if (unicode < self.firstGlyph or unicode >= self.firstGlyph + @as(i32, @intCast(self.glyphs.len))) return null;
+	return self.glyphs[@intCast(unicode - self.firstGlyph)];
 }

@@ -34,18 +34,9 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    const lib_mod = b.createModule(.{ .root_source_file = b.path("src/root.zig"), .target = target, .optimize = optimize, .imports = &.{
-	    .{
-	        .name = "sokol",
-	        .module = dep_sokol.module("sokol"),
-	    },
-	    .{
-	    	.name = "zmath",
-	     	.module = dep_zmath.module("root"),
-	    }
-    } });
+    const dep_zstdbi = b.dependency("zstbi", .{});
 
-    const exe_mod = b.createModule(.{ .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize, .imports = &.{
+    const imports: []const std.Build.Module.Import = &.{
 	    .{
 	        .name = "sokol",
 	        .module = dep_sokol.module("sokol"),
@@ -53,8 +44,16 @@ pub fn build(b: *std.Build) !void {
 	    .{
 	    	.name = "zmath",
 	     	.module = dep_zmath.module("root"),
-	    }
-    } });
+	    },
+		.{
+			.name = "zstbi",
+			.module = dep_zstdbi.module("root"),
+		}
+    };
+
+    const lib_mod = b.createModule(.{ .root_source_file = b.path("src/root.zig"), .target = target, .optimize = optimize, .imports = imports});
+
+    const exe_mod = b.createModule(.{ .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize, .imports = imports });
 
     const lib = b.addLibrary(.{
         .linkage = .static,

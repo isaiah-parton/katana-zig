@@ -6,14 +6,18 @@ const sglue = sokol.glue;
 const shd = @import("shaders/shader.glsl.zig");
 const std = @import("std");
 const math = @import("math.zig");
+const zstbi = @import("zstbi");
 const Context = @import("context.zig");
 const Color = @import("color.zig");
+const Font = @import("font.zig");
 const Shape = @import("shape.zig");
+const Text = @import("text.zig");
 
 const state = struct {
     var bind: sg.Bindings = .{};
     var pip: sg.Pipeline = .{};
     var ctx: Context = undefined;
+    var font: Font = undefined;
 };
 
 const Transform = struct {
@@ -25,6 +29,8 @@ const Transform = struct {
 };
 
 export fn init() void {
+	zstbi.init(std.heap.page_allocator);
+
     sg.setup(.{
         .environment = sglue.environment(),
         .logger = .{ .func = slog.func },
@@ -40,28 +46,31 @@ export fn init() void {
 
     const vertices_buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(math.Vec2) * Context.MAX_VERTICES, .label = "Vertices" });
 
-    const empty_data = std.heap.page_allocator.alloc(u8, 2048 * 2048 * 4) catch unreachable;
-    defer std.heap.page_allocator.free(empty_data);
-    @memset(empty_data, 0);
-
+    const pixels = std.heap.page_allocator.alloc(u8, 2048 * 2048 * 4) catch unreachable;
+    defer std.heap.page_allocator.free(pixels);
+    @memset(pixels, 0);
     var image_data = sg.ImageData{};
-    image_data.subimage[0][0] = .{.ptr = empty_data.ptr, .size = empty_data.len};
+    image_data.subimage[0][0] = .{.ptr = pixels.ptr, .size = pixels.len};
+    const paint_image = sg.makeImage(.{ .label = "Paint Image", .pixel_format = .RGBA8, .width = 2048, .height = 2048, .type = ._2D, .usage = .{ }, .data = image_data });
 
-    const msdf_image = sg.makeImage(.{ .pixel_format = .RGBA8, .width = 2048, .height = 2048, .type = ._2D, .usage = .{ }, .data = image_data });
-    const paint_image = sg.makeImage(.{ .pixel_format = .RGBA8, .width = 2048, .height = 2048, .type = ._2D, .usage = .{ }, .data = image_data });
+    state.ctx = .init(paint_image);
+    state.font = Font.loadFromFiles("src/fonts/Lexend-Medium.png", "src/fonts/Lexend-Medium.json") catch |e| {
+    	std.log.err("{any}", .{e});
+     	unreachable;
+    };
+    state.font.rect = state.ctx.addMSDF(state.font.image.data, state.font.image.width, state.font.image.height);
+
 
     // sg.updateImage(msdf_image, image_data);
     // sg.updateImage(paint_image, image_data);
 
-    state.ctx = .init(msdf_image, paint_image);
 
-    std.log.info("{?}", .{sg.queryImageState(msdf_image)});
     std.log.info("{?}", .{sg.queryImageState(paint_image)});
 
     const msdf_sampler = sg.makeSampler(.{.label = "MSDF Sampler", .min_filter = .LINEAR, .mag_filter = .LINEAR, .wrap_u = .CLAMP_TO_EDGE, .wrap_v = .CLAMP_TO_EDGE});
     const paint_sampler = sg.makeSampler(.{.label = "Paint Sampler", .min_filter = .LINEAR, .mag_filter = .LINEAR, .wrap_u = .CLAMP_TO_EDGE, .wrap_v = .CLAMP_TO_EDGE});
 
-    state.bind.images[shd.shaderImageSlot("msdf_texture").?] = msdf_image;
+    state.bind.images[shd.shaderImageSlot("msdf_texture").?] = state.ctx.msdf.image;
     state.bind.images[shd.shaderImageSlot("paint_texture").?] = paint_image;
     state.bind.samplers[shd.shaderSamplerSlot("msdf_sampler").?] = msdf_sampler;
     state.bind.samplers[shd.shaderSamplerSlot("paint_sampler").?] = paint_sampler;
@@ -114,23 +123,31 @@ const FragmentShaderParams = struct {
 
 export fn frame() void {
     const vertex_params = VertexShaderParams{ .screen_size = .{ @floatFromInt(sapp.width()), @floatFromInt(sapp.height()) } };
-    const fragment_params = FragmentShaderParams{ .time = 0.0, .output_gamma = 1.0, .text_unit_range = 0.0, .text_in_bias = 0.0, .text_out_bias = 0.0 };
+    const fragment_params = FragmentShaderParams{ .time = 0.0, .output_gamma = 1.0, .text_unit_range = 0.001, .text_in_bias = 0.0, .text_out_bias = 0.0 };
 
     state.ctx.paints.append(shd.Paint{ .kind = 1, ._noise = 0.0, .col0 = .{ 1.0, 0.0, 0.0, 1.0 }, .col1 = undefined, .col2 = undefined, .cv0 = undefined, .cv1 = undefined, .cv2 = undefined, .cv3 = undefined }) catch unreachable;
     state.ctx.transforms.append(shd.Transform{ .matrix = .{ 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 } }) catch unreachable;
 
     // Test drawing stuff
-    Shape.circle(.new(80, 480), 50).fill(Color.RED).draw(&state.ctx);
-    Shape.rect(.new(300, 100), .new(380, 250)).rounded(4, 20, 20, 4).fill(Color.WHITE).draw(&state.ctx);
-    Shape.bezier(.new(100, 100), .new(200, 100), .new(200, 200)).stroke(Color.BLUE, 4).draw(&state.ctx);
-    Shape.line(.new(100, 300), .new(200, 200)).stroke(Color.RED, 4).draw(&state.ctx);
+    // Shape.circle(.new(80, 480), 50).fill(Color.RED).draw(&state.ctx);
+    // Shape.rect(.new(300, 100), .new(380, 250)).rounded(4, 20, 20, 4).fill(Color.WHITE).draw(&state.ctx);
+    // Shape.bezier(.new(100, 100), .new(200, 100), .new(200, 200)).stroke(Color.BLUE, 4).draw(&state.ctx);
+    // Shape.line(.new(100, 300), .new(200, 200)).stroke(Color.RED, 4).draw(&state.ctx);
 
-    var path = Shape.path(.{.origin = .new(100, 100)});
-    path.quad_to(.new(150, 50), .new(200, 100));
-    path.quad_to(.new(250, 150), .new(200, 200));
-    path.quad_to(.new(150, 250), .new(100, 200));
-    path.quad_to(.new(50, 150), .new(100, 100));
-    path.stroke(Color.RED, 4).draw(&state.ctx);
+    // var path = Shape.path(.{.origin = .new(100, 100)});
+    // path.quadTo(.new(150, 50), .new(200, 100));
+    // path.quadTo(.new(250, 150), .new(200, 200));
+    // path.quadTo(.new(150, 250), .new(100, 200));
+    // path.quadTo(.new(50, 150), .new(100, 100));
+    // path.stroke(Color.RED, 4).draw(&state.ctx);
+
+    var offset: f32 = 0;
+    var scale: f32 = 12;
+    for (0..15) |_| {
+    	Text.from_string(&state.font, "Dies ire dies illa", scale, .new(0, offset), Color.WHITE).draw(&state.ctx);
+     	offset += scale + 2;
+      	scale *= 1.15;
+    }
 
     if (state.ctx.shape_spatials.len > 0) {
         sg.updateBuffer(state.bind.storage_buffers[0], sg.Range{ .ptr = @ptrCast(&state.ctx.shape_spatials.buffer), .size = @intCast(state.ctx.shape_spatials.len * @sizeOf(shd.ShapeSpatial)) });

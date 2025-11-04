@@ -92,6 +92,19 @@ pub fn line(a: math.Vec2, b: math.Vec2) Self {
 	};
 }
 
+pub fn msdf(top_left: math.Vec2, bottom_right: math.Vec2, source_top_left: math.Vec2, source_bottom_right: math.Vec2) Self {
+	return Self {
+		.variant = .{
+			.msdf = .{
+				.top_left = top_left,
+				.bottom_right = bottom_right,
+				.source_top_left = source_top_left,
+				.source_bottom_right = source_bottom_right,
+			}
+		}
+	};
+}
+
 const PathOptions = struct {
 	origin: math.Vec2,
 	allocator: std.mem.Allocator = std.heap.page_allocator,
@@ -108,14 +121,14 @@ pub fn path(opts: PathOptions) Self {
 	};
 }
 
-pub fn line_to(self: *Self, point: math.Vec2) void {
+pub fn lineTo(self: *Self, point: math.Vec2) void {
 	const last_point = self.variant.path.points.getLastOrNull() orelse self.variant.path.origin;
 	self.variant.path.points.append(last_point) catch unreachable;
 	self.variant.path.points.append(last_point.lerp(point, 0.5)) catch unreachable;
 	self.variant.path.points.append(point) catch unreachable;
 }
 
-pub fn quad_to(self: *Self, control: math.Vec2, point: math.Vec2) void {
+pub fn quadTo(self: *Self, control: math.Vec2, point: math.Vec2) void {
 	const last_point = self.variant.path.points.getLastOrNull() orelse self.variant.path.origin;
 	self.variant.path.points.append(last_point) catch unreachable;
 	self.variant.path.points.append(control) catch unreachable;
@@ -123,7 +136,7 @@ pub fn quad_to(self: *Self, control: math.Vec2, point: math.Vec2) void {
 }
 
 pub fn close(self: *Self) void {
-	self.line_to(self.variant.path.origin);
+	self.lineTo(self.variant.path.origin);
 }
 
 pub fn rounded(self: Self, top_left: f32, top_right: f32, bottom_left: f32, bottom_right: f32) Self {
@@ -211,7 +224,7 @@ pub fn draw(self: Self, ctx: *Context) void {
 				.width = self.width,
 				.start = 0,
 				.count = 0,
-				.stroke = 0,
+				.stroke = @intFromBool(self.outlined),
 				.paint = @intCast(ctx.paints.len - 1)
 			}) catch unreachable;
 		},
@@ -297,8 +310,8 @@ pub fn draw(self: Self, ctx: *Context) void {
 			ctx.shape_spatials.append(.{
 				.quad_min = info.top_left,
 				.quad_max = info.bottom_right,
-				.tex_min = info.source_top_left,
-				.tex_max = info.source_bottom_right,
+				.tex_min = info.source_top_left.div(2048),
+				.tex_max = info.source_bottom_right.div(2048),
 				.xform = 0,
 			}) catch unreachable;
 			ctx.shapes.append(.{
