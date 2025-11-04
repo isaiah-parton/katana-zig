@@ -24,20 +24,37 @@ pub fn build(b: *std.Build) !void {
         .reflection = true,
     });
 
+    const dep_zmath = b.dependency("zmath", .{
+    	.target = target,
+     	.optimize = optimize,
+    });
+
     const dep_sokol = b.dependency("sokol", .{
         .target = target,
         .optimize = optimize,
     });
 
-    const lib_mod = b.createModule(.{ .root_source_file = b.path("src/root.zig"), .target = target, .optimize = optimize, .imports = &.{.{
-        .name = "sokol",
-        .module = dep_sokol.module("sokol"),
-    }} });
+    const lib_mod = b.createModule(.{ .root_source_file = b.path("src/root.zig"), .target = target, .optimize = optimize, .imports = &.{
+	    .{
+	        .name = "sokol",
+	        .module = dep_sokol.module("sokol"),
+	    },
+	    .{
+	    	.name = "zmath",
+	     	.module = dep_zmath.module("root"),
+	    }
+    } });
 
-    const exe_mod = b.createModule(.{ .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize, .imports = &.{.{
-        .name = "sokol",
-        .module = dep_sokol.module("sokol"),
-    }} });
+    const exe_mod = b.createModule(.{ .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize, .imports = &.{
+	    .{
+	        .name = "sokol",
+	        .module = dep_sokol.module("sokol"),
+	    },
+	    .{
+	    	.name = "zmath",
+	     	.module = dep_zmath.module("root"),
+	    }
+    } });
 
     const lib = b.addLibrary(.{
         .linkage = .static,

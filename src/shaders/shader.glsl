@@ -1,5 +1,5 @@
 @vs vs
-struct ShapeVertexData {
+struct Shape_Spatial {
 	vec2 quad_min;
 	vec2 quad_max;
 	vec2 tex_min;
@@ -16,36 +16,33 @@ layout(binding=0) uniform vs_params {
 };
 layout (std430, binding=0) readonly buffer shapesVertexBuffer
 {
-	ShapeVertexData vs_shapes[];
+	Shape_Spatial vs_shapes[];
 };
 layout (std430, binding=1) readonly buffer xformsBuffer
 {
 	Transform xforms[];
 };
 
-in uint vertex_id;
-in uint instance_id;
-
 out vec2 p;
 out vec2 uv;
 flat out uint shape_idx;
 
 void main() {
-  ShapeVertexData shape = vs_shapes[instance_id];
+  Shape_Spatial shape = vs_shapes[gl_InstanceIndex];
 
   vec2 out_p;
   vec2 out_uv;
 
-  if (vertex_id == 0u) {
+  if (gl_VertexIndex == 0u) {
     out_p = shape.quad_min;
     out_uv = shape.tex_min;
-  } else if (vertex_id == 1u) {
+  } else if (gl_VertexIndex == 1u) {
     out_p = vec2(shape.quad_min.x, shape.quad_max.y);
     out_uv = vec2(shape.tex_min.x, shape.tex_max.y);
-  } else if (vertex_id == 2u) {
+  } else if (gl_VertexIndex == 2u) {
     out_p = vec2(shape.quad_max.x, shape.quad_min.y);
     out_uv = vec2(shape.tex_max.x, shape.tex_min.y);
-  } else if (vertex_id == 3u) {
+  } else if (gl_VertexIndex == 3u) {
     out_p = shape.quad_max;
     out_uv = shape.tex_max;
   }
@@ -57,7 +54,7 @@ void main() {
   gl_Position = vec4(pos, 0.0, 1.0);
   p = out_p;
   uv = out_uv;
-  shape_idx = instance_id;
+  shape_idx = gl_InstanceIndex;
 }
 @end
 

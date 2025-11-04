@@ -5,18 +5,17 @@ const sapp = sokol.app;
 const sglue = sokol.glue;
 const shd = @import("shaders/shader.glsl.zig");
 const std = @import("std");
+const Context = @import("context.zig");
+const Color = @import("color.zig");
+const Shape = @import("shape.zig");
+const MAX_SHAPES = @import("context.zig").MAX_SHAPES;
+const MAX_TRANSFORMS = @import("context.zig").MAX_TRANSFORMS;
 
 const state = struct {
     var bind: sg.Bindings = .{};
     var pip: sg.Pipeline = .{};
-    var shapes_vertex = std.BoundedArray(shd.Shapevertexdata, MAX_SHAPES).init(0) catch unreachable;
-    var transforms = std.BoundedArray(shd.Transform, MAX_TRANSFORMS).init(0) catch unreachable;
-    var shapes = std.BoundedArray(shd.Shape, MAX_SHAPES).init(0) catch unreachable;
-    var paints = std.BoundedArray(shd.Paint, MAX_SHAPES).init(0) catch unreachable;
+    var ctx: Context = .init();
 };
-
-const MAX_SHAPES = 2048;
-const MAX_TRANSFORMS = 512;
 
 const Transform = struct {
     matrix: [4][4]f32,
@@ -27,27 +26,50 @@ const Transform = struct {
 };
 
 export fn init() void {
+    state.ctx = .init();
     sg.setup(.{
         .environment = sglue.environment(),
         .logger = .{ .func = slog.func },
     });
 
-    const shapes_vertex_buffer: sg.Buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(shd.Shapevertexdata) * MAX_SHAPES });
+    const shape_spatials_buffer: sg.Buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(shd.ShapeSpatial) * MAX_SHAPES, .label = "Shape vertices" });
 
-    const transforms_buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(Transform) * MAX_TRANSFORMS });
+    const transforms_buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(Transform) * MAX_TRANSFORMS, .label = "Transforms" });
 
-    const shapes_buffer: sg.Buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(shd.Shape) * MAX_SHAPES });
+    const shapes_buffer: sg.Buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(shd.Shape) * MAX_SHAPES, .label = "Shapes" });
 
-    const paints_buffer: sg.Buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(shd.Paint) * MAX_SHAPES });
+    const paints_buffer: sg.Buffer = sg.makeBuffer(.{ .usage = .{ .storage_buffer = true, .dynamic_update = true }, .size = @sizeOf(shd.Paint) * MAX_SHAPES, .label = "Paints" });
 
-    state.bind.storage_buffers[0] = shapes_vertex_buffer;
+    state.bind.storage_buffers[0] = shape_spatials_buffer;
     state.bind.storage_buffers[1] = transforms_buffer;
     state.bind.storage_buffers[2] = shapes_buffer;
     state.bind.storage_buffers[3] = paints_buffer;
 
     // create a shader and pipeline object
     state.pip = sg.makePipeline(.{
-        .shader = sg.makeShader(shd.shaderShaderDesc(sg.queryBackend())),
+       	.label = "Blade",
+    	.shader = sg.makeShader(shd.shaderShaderDesc(sg.queryBackend())),
+     	.primitive_type = .TRIANGLE_STRIP,
+      	.blend_color = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
+        .color_count = 1,
+        .colors = .{
+        	.{
+         		.pixel_format = .BGRA8,
+           		.write_mask = .RGBA,
+             	.blend = .{
+		            .enabled = true,
+		            .src_factor_rgb = .SRC_ALPHA,
+		            .dst_factor_rgb = .ONE_MINUS_SRC_ALPHA,
+		            .op_rgb = .DEFAULT,
+		            .op_alpha = .REVERSE_SUBTRACT,
+		            .src_factor_alpha = .ONE,
+		            .dst_factor_alpha = .ONE
+	            }
+         	},
+         	.{},
+         	.{},
+         	.{}
+        },
     });
 }
 
@@ -64,40 +86,46 @@ const FragmentShaderParams = struct {
 };
 
 export fn frame() void {
-    const vertex_params = VertexShaderParams{ .screen_size = .{ 1000, 800 } };
-    const fragment_params = FragmentShaderParams{ .time = 0.0, .output_gamma = 2.2, .text_unit_range = 0.0, .text_in_bias = 0.0, .text_out_bias = 0.0 };
+    const vertex_params = VertexShaderParams{ .screen_size = .{ @floatFromInt(sapp.width()), @floatFromInt(sapp.height()) } };
+    const fragment_params = FragmentShaderParams{ .time = 0.0, .output_gamma = 1.0, .text_unit_range = 0.0, .text_in_bias = 0.0, .text_out_bias = 0.0 };
 
-    state.shapes_vertex.append(shd.Shapevertexdata{ .quad_min = .{ 0.0, 0.0 }, .quad_max = .{ 100.0, 100.0 }, .tex_min = .{ 0.0, 0.0 }, .tex_max = .{ 0.0, 0.0 }, .xform = 0 }) catch unreachable;
-    state.shapes.append(shd.Shape{ .kind = 1, .radius = .{ 50.0, 0.0, 0.0, 0.0 }, .cv0 = .{ 50.0, 50.0 }, .cv1 = .{ 0.0, 0.0 }, .cv2 = .{ 0.0, 0.0 }, .count = 0, .mode = 0, .next = 0, .paint = 0, .start = 0, .stroke = 0, .width = 0 }) catch unreachable;
-    state.paints.append(shd.Paint{ .kind = 1, ._noise = 0.0, .col0 = .{ 1.0, 0.0, 0.0, 1.0 }, .col1 = undefined, .col2 = undefined, .cv0 = undefined, .cv1 = undefined, .cv2 = undefined, .cv3 = undefined }) catch unreachable;
-    state.transforms.append(shd.Transform{ .matrix = .{ 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 } }) catch unreachable;
+    state.ctx.paints.append(shd.Paint{ .kind = 1, ._noise = 0.0, .col0 = .{ 1.0, 0.0, 0.0, 1.0 }, .col1 = undefined, .col2 = undefined, .cv0 = undefined, .cv1 = undefined, .cv2 = undefined, .cv3 = undefined }) catch unreachable;
+    state.ctx.transforms.append(shd.Transform{ .matrix = .{ 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 } }) catch unreachable;
 
-    if (state.shapes_vertex.len > 0) {
-        sg.updateBuffer(state.bind.storage_buffers[0], sg.Range{ .ptr = @ptrCast(&state.shapes_vertex.buffer), .size = @intCast(state.shapes_vertex.len) });
+    // Test drawing stuff
+    Shape.circle(.{50, 50}, 50).fill(Color.RED).draw(&state.ctx);
+    Shape.circle(.{150, 200}, 40).fill(Color.BLUE).draw(&state.ctx);
+
+    if (state.ctx.shape_spatials.len > 0) {
+        sg.updateBuffer(state.bind.storage_buffers[0], sg.Range{ .ptr = @ptrCast(&state.ctx.shape_spatials.buffer), .size = @intCast(state.ctx.shape_spatials.len * @sizeOf(shd.ShapeSpatial)) });
     }
-    if (state.transforms.len > 0) {
-        sg.updateBuffer(state.bind.storage_buffers[1], sg.Range{ .ptr = @ptrCast(&state.transforms.buffer), .size = @intCast(state.transforms.len) });
+    if (state.ctx.transforms.len > 0) {
+        sg.updateBuffer(state.bind.storage_buffers[1], sg.Range{ .ptr = @ptrCast(&state.ctx.transforms.buffer), .size = @intCast(state.ctx.transforms.len * @sizeOf(shd.Transform)) });
     }
-    if (state.shapes.len > 0) {
-        sg.updateBuffer(state.bind.storage_buffers[2], sg.Range{ .ptr = @ptrCast(&state.shapes.buffer), .size = @intCast(state.shapes.len) });
+    if (state.ctx.shapes.len > 0) {
+        sg.updateBuffer(state.bind.storage_buffers[2], sg.Range{ .ptr = @ptrCast(&state.ctx.shapes.buffer), .size = @intCast(state.ctx.shapes.len * @sizeOf(shd.Shape)) });
     }
-    if (state.paints.len > 0) {
-        sg.updateBuffer(state.bind.storage_buffers[3], sg.Range{ .ptr = @ptrCast(&state.paints.buffer), .size = @intCast(state.paints.len) });
+    if (state.ctx.paints.len > 0) {
+        sg.updateBuffer(state.bind.storage_buffers[3], sg.Range{ .ptr = @ptrCast(&state.ctx.paints.buffer), .size = @intCast(state.ctx.paints.len * @sizeOf(shd.Paint)) });
     }
 
-    sg.beginPass(.{ .swapchain = sglue.swapchain() });
+    var pass_action = sg.PassAction{};
+
+    pass_action.colors[0] = .{.load_action = .CLEAR, .clear_value = .{.r = 0, .g = 0, .b = 0, .a = 1}};
+
+    sg.beginPass(.{ .swapchain = sglue.swapchain(), .action = pass_action });
     sg.applyPipeline(state.pip);
     sg.applyUniforms(@intCast(shd.shaderUniformBlockSlot("vs_params").?), sg.Range{ .ptr = @ptrCast(&vertex_params), .size = @intCast(shd.shaderUniformBlockSize("vs_params").?) });
     sg.applyUniforms(@intCast(shd.shaderUniformBlockSlot("fs_params").?), sg.Range{ .ptr = @ptrCast(&fragment_params), .size = @intCast(shd.shaderUniformBlockSize("fs_params").?) });
     sg.applyBindings(state.bind);
-    sg.draw(0, 4, @intCast(state.shapes.len));
+    sg.draw(0, 4, @intCast(state.ctx.shapes.len));
     sg.endPass();
     sg.commit();
 
-    state.shapes_vertex.clear();
-    state.shapes.clear();
-    state.transforms.clear();
-    state.paints.clear();
+    state.ctx.shape_spatials.clear();
+    state.ctx.shapes.clear();
+    state.ctx.transforms.clear();
+    state.ctx.paints.clear();
 }
 
 export fn cleanup() void {

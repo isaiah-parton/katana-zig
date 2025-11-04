@@ -44,6 +44,10 @@
             .url = "git+https://github.com/floooh/sokol-tools-bin#6621a22d61f7936df7639f229a683098f75011d7",
             .hash = "sokolshdc-0.1.0-r2KZDvbikwSaF5KdkyYXN7yS4FLPhDWDSlOS_IizdV9G",
         },
+        .zmath = .{
+            .url = "git+https://github.com/zig-gamedev/zmath.git#3a5955b2b72cd081563fbb084eff05bffd1e3fbb",
+            .hash = "zmath-0.11.0-dev-wjwivdMsAwD-xaLj76YHUq3t9JDH-X16xuMTmnDzqbu2",
+        },
     },
     .paths = .{
         "build.zig",
