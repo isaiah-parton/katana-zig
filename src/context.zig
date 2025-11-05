@@ -1,6 +1,7 @@
 const std = @import("std");
 const shd = @import("shaders/shader.glsl.zig");
 const sokol = @import("sokol");
+const zstbi = @import("zstbi");
 const sg = sokol.gfx;
 const sglue = sokol.glue;
 const sapp = sokol.app;
@@ -13,18 +14,6 @@ pub const MAX_PAINTS = 512;
 pub const MAX_VERTICES = 1024;
 pub const TEXTURE_SIZE = 2048;
 
-pub const Transform = struct {
-    matrix: [4][4]f32,
-
-    pub fn equals(self: *Transform, other: *Transform) bool {
-        return self.matrix == other.matrix;
-    }
-
-    pub fn unfold(self: *const Transform) [16]f32 {
-        return @as([16]f32, @bitCast(self.matrix));
-    }
-};
-
 const Atlas = struct {
 	dirty: bool = true,
 	image: sg.Image,
@@ -33,6 +22,10 @@ const Atlas = struct {
 	width: u32,
 	height: u32,
 	allocator: std.mem.Allocator,
+	offset_x: u32 = 0,
+	offset_y: u32 = 0,
+	max_height: u32 = 0,
+	rects: std.ArrayList(math.Rect),
 
 	pub fn init(allocator: std.mem.Allocator, label: []const u8, size: u32) Atlas {
 		const pixels = allocator.alloc(u8, size * size * 4) catch unreachable;
@@ -59,13 +52,50 @@ const Atlas = struct {
 			.data = pixels,
 			.width = size,
 			.height = size,
+			.rects = .init(allocator),
 		};
 	}
 
-	pub fn destroy(self: *Self) void {
+	pub fn destroy(self: *Atlas) void {
 		sg.destroyImage(self.image);
 		sg.destroySampler(self.sampler);
 		self.allocator.free(self.data);
+	}
+
+	pub fn addImage(self: *Atlas, data: []u8, width: u32, height: u32) !math.Rect {
+		try self.addImageData(data, self.offset_x, self.offset_y, width, height);
+		const rect = math.Rect.new(@floatFromInt(self.offset_x), @floatFromInt(self.offset_y), @floatFromInt(width), @floatFromInt(height));
+		self.offset_x += width;
+		if (self.offset_x + width > self.width) {
+			self.offset_x = 0;
+			self.offset_y += self.max_height;
+		}
+		self.max_height = @max(self.max_height, height);
+		return rect;
+	}
+
+	pub fn addImageData(self: *Atlas, data: []u8, left: u32, top: u32, width: u32, height: u32) !void {
+		if (left + width > self.width or top + height > self.height) {
+			return error.OutOfBounds;
+		}
+		for (0..height) |y| {
+	        for (0..width) |x| {
+	        	const src_index = (top + y * self.width + left + x) * 4;
+	         	const dst_index = (top + y * width + left + x) * 4;
+	            self.data[src_index] = data[dst_index];
+	            self.data[src_index + 1] = data[dst_index + 1];
+	            self.data[src_index + 2] = data[dst_index + 2];
+	            self.data[src_index + 3] = data[dst_index + 3];
+	        }
+	    }
+		self.dirty = true;
+	}
+
+	pub fn upload(self: *Atlas) void {
+		var image_data = sg.ImageData{};
+	    image_data.subimage[0][0] = .{.ptr = self.data.ptr, .size = self.data.len};
+	    sg.updateImage(self.image, image_data);
+	    self.dirty = false;
 	}
 };
 
@@ -78,8 +108,8 @@ shape_spatials: std.BoundedArray(shd.ShapeSpatial, MAX_SHAPES),
 shapes: std.BoundedArray(shd.Shape, MAX_SHAPES),
 // Transform matrices
 transforms: std.BoundedArray(shd.Transform, MAX_TRANSFORMS),
-last_transform: ?Transform = null,
-transform_stack: std.ArrayList(Transform),
+last_transform: ?math.Mat4 = null,
+transform_stack: std.ArrayList(math.Mat4),
 // Fill and stroke styles for shapes
 paints: std.BoundedArray(shd.Paint, MAX_PAINTS),
 // Vertices for paths
@@ -98,7 +128,7 @@ pub fn init() Self {
 
     const transforms_buffer = sg.makeBuffer(.{
     	.usage = .{ .storage_buffer = true, .dynamic_update = true },
-     	.size = @sizeOf(Transform) * MAX_TRANSFORMS,
+     	.size = @sizeOf(shd.Transform) * MAX_TRANSFORMS,
       	.label = "Transforms"
     });
 
@@ -116,7 +146,7 @@ pub fn init() Self {
 
     const vertices_buffer = sg.makeBuffer(.{
     	.usage = .{ .storage_buffer = true, .dynamic_update = true },
-     	.size = @sizeOf(math.Vec2) * MAX_VERTICES,
+     	.size = @sizeOf(shd.Vertex) * MAX_VERTICES,
       	.label = "Vertices"
     });
 
@@ -169,7 +199,7 @@ pub fn init() Self {
         .transforms = .{},
         .paints = .{},
         .vertices = .{},
-        .transform_stack = std.ArrayList(Transform).init(std.heap.page_allocator),
+        .transform_stack = std.ArrayList(math.Mat4).init(std.heap.page_allocator),
         .msdf_atlas = msdf_atlas,
         .paint_atlas = paint_atlas,
         .pipeline = pipeline,
@@ -178,37 +208,37 @@ pub fn init() Self {
 }
 
 pub fn pushMatrix(self: *Self) void {
-    self.transform_stack.append(
-	    Transform{
-	    	.matrix = .{
-	     		.{ 1.0, 0.0, 0.0, 0.0 },
-	       		.{ 0.0, 1.0, 0.0, 0.0 },
-	         	.{ 0.0, 0.0, 1.0, 0.0 },
-	          	.{ 0.0, 0.0, 0.0, 1.0 }
-	     	}
-	    }
-    ) catch unreachable;
+    self.transform_stack.append(math.Mat4.identity()) catch unreachable;
 }
 
 pub fn popMatrix(self: *Self) void {
 	self.transform_stack.pop();
 }
 
-pub fn addMSDF(self: *Self, data: []u8, width: u32, height: u32) math.Rect {
-	for (0..height) |y| {
-        for (0..width) |x| {
-        	const src_index = (y * self.msdf_atlas.width + x) * 4;
-         	const dst_index = (y * width + x) * 4;
-            self.msdf_atlas.data[src_index] = data[dst_index];
-            self.msdf_atlas.data[src_index + 1] = data[dst_index + 1];
-            self.msdf_atlas.data[src_index + 2] = data[dst_index + 2];
-            self.msdf_atlas.data[src_index + 3] = data[dst_index + 3];
-        }
-    }
-    var image_data = sg.ImageData{};
-    image_data.subimage[0][0] = .{.ptr = self.msdf_atlas.data.ptr, .size = self.msdf_atlas.data.len};
-    sg.updateImage(self.msdf_atlas.image, image_data);
-    return math.Rect.new(0, 0, @floatFromInt(width), @floatFromInt(height));
+pub fn rotate(self: *Self, angle: f32) void {
+	if (angle == 0.0) {
+		return;
+	}
+	var current_matrix = self.transform_stack.getLastOrNull() orelse math.Mat4.identity();
+	current_matrix = math.Mat4.mul(current_matrix, math.Mat4.rotate(angle, .new(0, 0, 1)));
+	self.transform_stack.append(current_matrix) catch unreachable;
+}
+
+pub fn translate(self: *Self, vector: math.Vec2) void {
+	var current_matrix = self.transform_stack.getLastOrNull() orelse math.Mat4.identity();
+	current_matrix = math.Mat4.mul(current_matrix, math.Mat4.translate(math.Vec3.new(vector.x, vector.y, 0.0)));
+	self.transform_stack.append(current_matrix) catch unreachable;
+}
+
+pub fn scale(self: *Self, factor: math.Vec2) void {
+	var current_matrix = self.transform_stack.getLastOrNull() orelse math.Mat4.identity();
+	current_matrix = math.Mat4.mul(current_matrix, math.Mat4.scale(math.Vec3.new(factor.x, factor.y, 1)));
+	self.transform_stack.append(current_matrix) catch unreachable;
+}
+
+pub fn loadUserImage(self: *Self, path: [:0]const u8) !math.Rect {
+	const image = try zstbi.Image.loadFromFile(path, 4);
+	return try self.paint_atlas.addImage(image.data, image.width, image.height);
 }
 
 pub fn uploadData(self: *Self) void {
@@ -250,6 +280,8 @@ pub fn uploadData(self: *Self) void {
 }
 
 pub fn beginDrawing(self: *Self) void {
+	self.last_transform = null;
+	self.transform_stack.clearRetainingCapacity();
 	self.paints.append(shd.Paint{
 		.kind = 0,
 		._noise = 0.0,
@@ -274,6 +306,12 @@ pub fn beginDrawing(self: *Self) void {
 pub fn endDrawing(self: *Self) void {
 	const shape_count = self.shapes.len;
 
+	if (self.msdf_atlas.dirty) {
+		self.msdf_atlas.upload();
+	}
+	if (self.paint_atlas.dirty) {
+		self.paint_atlas.upload();
+	}
 	self.uploadData();
 
 	var pass_action = sg.PassAction{};

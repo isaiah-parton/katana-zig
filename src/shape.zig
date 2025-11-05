@@ -50,6 +50,7 @@ const Variant = union(Kind) {
 
 variant: Variant,
 color: ?Color = null,
+image: ?math.Rect = null,
 width: f32 = 0,
 outlined: bool = false,
 
@@ -151,6 +152,13 @@ pub fn fill(self: Self, color: Color) Self {
 	return new;
 }
 
+pub fn fillWithImage(self: Self, source: math.Rect, tint: Color) Self {
+	var new = self;
+	new.image = source;
+	new.color = tint;
+	return new;
+}
+
 pub fn stroke(self: Self, color: Color, width: f32) Self {
 	var new = self;
 	new.color = color;
@@ -162,17 +170,26 @@ pub fn stroke(self: Self, color: Color, width: f32) Self {
 pub fn draw(self: Self, ctx: *Context) void {
 	if (!std.meta.eql(ctx.transform_stack.getLastOrNull(), ctx.last_transform)) {
 		const transform = ctx.transform_stack.getLastOrNull().?;
-		ctx.transforms.append(shd.Transform{.matrix = transform.unfold()}) catch unreachable;
+		ctx.transforms.append(shd.Transform{.matrix = @bitCast(transform)}) catch unreachable;
 		ctx.last_transform = transform;
+	}
+	const transform_index = ctx.transforms.len - 1;
+	var tex_min = math.Vec2.zero();
+	var tex_max = math.Vec2.zero();
+	const source_top_left = math.Vec2.zero();
+	const source_bottom_right = math.Vec2.zero();
+	if (self.image) |sourceRect| {
+		tex_min = .{.x = sourceRect.left / 2048, .y = sourceRect.top / 2048};
+		tex_max = .{.x = sourceRect.right / 2048, .y = sourceRect.bottom / 2048};
 	}
 	ctx.paints.append(
 		shd.Paint{
-			.kind = 1,
+			.kind = 1 + @as(u32, @intCast(@intFromBool(self.image != null))),
 			.col0 = (self.color orelse Color.WHITE).normalize(),
 			.col1 = .{0, 0, 0, 0},
 			.col2 = .{0, 0, 0, 0},
-			.cv0 = math.Vec2.zero(),
-			.cv1 = math.Vec2.zero(),
+			.cv0 = source_top_left,
+			.cv1 = source_bottom_right,
 			.cv2 = math.Vec2.zero(),
 			.cv3 = math.Vec2.zero(),
 			._noise = 0,
@@ -184,9 +201,9 @@ pub fn draw(self: Self, ctx: *Context) void {
 			ctx.shape_spatials.append(.{
 				.quad_min = info.center.sub(info.radius),
 				.quad_max = info.center.add(info.radius),
-				.tex_min = math.Vec2.zero(),
-				.tex_max = math.Vec2.zero(),
-				.xform = 0
+				.tex_min = tex_min,
+				.tex_max = tex_max,
+				.xform = @intCast(transform_index)
 			}) catch unreachable;
 			ctx.shapes.append(
 				.{
@@ -209,9 +226,9 @@ pub fn draw(self: Self, ctx: *Context) void {
 			ctx.shape_spatials.append(.{
 				.quad_min = info.top_left,
 				.quad_max = info.bottom_right,
-				.tex_min = math.Vec2.zero(),
-				.tex_max = math.Vec2.zero(),
-				.xform = 0
+				.tex_min = tex_min,
+				.tex_max = tex_max,
+				.xform = @intCast(transform_index)
 			}) catch unreachable;
 			ctx.shapes.append(.{
 				.kind = @intFromEnum(self.variant),
@@ -233,9 +250,9 @@ pub fn draw(self: Self, ctx: *Context) void {
 			ctx.shape_spatials.append(.{
 				.quad_min = math.Vec2.min(.{points[0], points[1]}).sub(self.width),
 				.quad_max = math.Vec2.max(.{points[0], points[1]}).add(self.width),
-				.tex_min = math.Vec2.zero(),
-				.tex_max = math.Vec2.zero(),
-				.xform = 0,
+				.tex_min = tex_min,
+				.tex_max = tex_max,
+				.xform = @intCast(transform_index),
 			}) catch unreachable;
 			ctx.shapes.append(.{
 				.kind = @intFromEnum(self.variant),
@@ -256,9 +273,9 @@ pub fn draw(self: Self, ctx: *Context) void {
 			ctx.shape_spatials.append(.{
 				.quad_min = math.Vec2.min(.{points[0], points[1], points[2]}).sub(self.width),
 				.quad_max = math.Vec2.max(.{points[0], points[1], points[2]}).add(self.width),
-				.tex_min = math.Vec2.zero(),
-				.tex_max = math.Vec2.zero(),
-				.xform = 0,
+				.tex_min = tex_min,
+				.tex_max = tex_max,
+				.xform = @intCast(transform_index),
 			}) catch unreachable;
 			ctx.shapes.append(.{
 				.kind = @intFromEnum(self.variant),
@@ -287,9 +304,9 @@ pub fn draw(self: Self, ctx: *Context) void {
 			ctx.shape_spatials.append(.{
 				.quad_min = min_pos.sub(self.width),
 				.quad_max = max_pos.add(self.width),
-				.tex_min = math.Vec2.zero(),
-				.tex_max = math.Vec2.zero(),
-				.xform = 0,
+				.tex_min = tex_min,
+				.tex_max = tex_max,
+				.xform = @intCast(transform_index),
 			}) catch unreachable;
 			ctx.shapes.append(.{
 				.kind = @intFromEnum(self.variant),
@@ -312,7 +329,7 @@ pub fn draw(self: Self, ctx: *Context) void {
 				.quad_max = info.bottom_right,
 				.tex_min = info.source_top_left.div(2048),
 				.tex_max = info.source_bottom_right.div(2048),
-				.xform = 0,
+				.xform = @intCast(transform_index),
 			}) catch unreachable;
 			ctx.shapes.append(.{
 				.kind = @intFromEnum(self.variant),

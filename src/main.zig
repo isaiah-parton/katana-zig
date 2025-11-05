@@ -36,6 +36,7 @@ const state = struct {
     var font: Font = undefined;
     var balls: std.ArrayList(Ball) = .init(std.heap.page_allocator);
     var rng = std.Random.DefaultPrng.init(911);
+    var image: math.Rect = undefined;
 };
 
 const Transform = struct {
@@ -59,7 +60,15 @@ export fn init() void {
     	std.log.err("{any}", .{e});
      	unreachable;
     };
-    state.font.rect = state.ctx.addMSDF(state.font.image.data, state.font.image.width, state.font.image.height);
+    state.font.rect = state.ctx.msdf_atlas.addImage(state.font.image.data, state.font.image.width, state.font.image.height) catch |e| {
+    	std.log.err("{any}", .{e});
+     	unreachable;
+    };
+
+    state.image = state.ctx.loadUserImage("src/images/image.png") catch |e| {
+    	std.log.err("{any}", .{e});
+     	unreachable;
+    };
 
     for (0..100) |_| {
     	state.balls.append(Ball.spawn(
@@ -75,14 +84,27 @@ export fn frame() void {
     state.ctx.beginDrawing();
 
     for (state.balls.items, 0..) |*ball, i| {
-    	Shape.circle(ball.position, ball.radius).fill(ball.color).draw(&state.ctx);
-     	const bounciness = 0.2;
+    	Shape.circle(ball.position, ball.radius)
+     		.fillWithImage(
+       			math.Rect.new(
+          			state.image.left + ball.position.x,
+             		state.image.top + ball.position.y,
+               		state.image.left + ball.position.x + ball.radius * 2,
+                 	state.image.top + ball.position.y + ball.radius * 2
+          		),
+          		Color.WHITE
+       		)
+       		.draw(&state.ctx);
+
+     	const boundary_bounciness = 0.2;
+
      	const left_overlap = @max(0, ball.radius - ball.position.x);
       	const top_overlap = @max(0, ball.radius - ball.position.y);
        	const right_overlap = @max(0, ball.position.x - (sapp.widthf() - ball.radius));
         const bottom_overlap = @max(0, ball.position.y - (sapp.heightf() - ball.radius));
-      	ball.position.x += (left_overlap - right_overlap) * (1.0 + bounciness);
-       	ball.position.y += (top_overlap - bottom_overlap) * (1.0 + bounciness);
+
+      	ball.position.x += (left_overlap - right_overlap) * (1.0 + boundary_bounciness);
+      	ball.position.y += (top_overlap - bottom_overlap) * (1.0 + boundary_bounciness);
 
         for (state.balls.items, 0..) |*other, j| {
         	if (i == j) continue;
