@@ -46,6 +46,16 @@ pub const Vec2 = extern struct {
     	return self.add(other.sub(self).scale(time));
     }
 
+    pub fn length(self: Vec2) f32 {
+        return math.sqrt(self.x * self.x + self.y * self.y);
+    }
+
+    pub fn normalize(self: Vec2) Vec2 {
+        const len = self.length();
+        if (len == 0.0) return Vec2.zero();
+        return self.scale(1.0 / len);
+    }
+
     pub fn min(vecs: anytype) Vec2 {
         const fields = @typeInfo(@TypeOf(vecs)).@"struct".fields;
         comptime {
