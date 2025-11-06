@@ -315,7 +315,7 @@ pub fn endDrawing(self: *Self) void {
 	self.uploadData();
 
 	var pass_action = sg.PassAction{};
-    pass_action.colors[0] = .{.load_action = .CLEAR, .clear_value = .{.r = 0, .g = 0, .b = 0, .a = 1}};
+    pass_action.colors[0] = .{.load_action = .CLEAR, .clear_value = .{.r = 0.02, .g = 0.05, .b = 0.1, .a = 1}};
 
     const vertex_params = shd.VsParams{
     	.screen_size = .new(

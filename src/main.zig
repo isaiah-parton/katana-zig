@@ -12,6 +12,7 @@ const Color = @import("color.zig");
 const Font = @import("font.zig");
 const Shape = @import("shape.zig");
 const Text = @import("text.zig");
+const RadialGradient = @import("radial_gradient.zig");
 
 const Ball = struct {
 	position: math.Vec2,
@@ -32,11 +33,16 @@ const Ball = struct {
 };
 
 const state = struct {
+	var frame_count: u32 = 0;
+	var fps: u32 = 0;
+	var last_second: std.time.Instant = undefined;
     var ctx: Context = undefined;
     var font: Font = undefined;
     var balls: std.ArrayList(Ball) = .init(std.heap.page_allocator);
     var rng = std.Random.DefaultPrng.init(911);
     var image: math.Rect = undefined;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    var arena: std.heap.ArenaAllocator = .init(gpa.allocator());
 };
 
 const Transform = struct {
@@ -65,7 +71,7 @@ export fn init() void {
      	unreachable;
     };
 
-    state.image = state.ctx.loadUserImage("src/images/image.png") catch |e| {
+    state.image = state.ctx.loadUserImage("src/images/pexels-pixabay-315191.jpg") catch |e| {
     	std.log.err("{any}", .{e});
      	unreachable;
     };
@@ -80,21 +86,19 @@ export fn init() void {
 
 export fn frame() void {
 	const delta_time = @as(f32, @floatCast(sapp.frameDuration()));
+	const now = std.time.Instant.now() catch unreachable;
+	if (now.since(state.last_second) > std.time.ns_per_s) {
+		state.fps = state.frame_count;
+		state.frame_count = 0;
+		state.last_second = now;
+	}
+	state.frame_count += 1;
 
     state.ctx.beginDrawing();
 
     for (state.balls.items, 0..) |*ball, i| {
     	Shape.circle(ball.position, ball.radius)
-     		.fillWithImage(
-       			math.Rect.new(
-          			state.image.left + ball.position.x,
-             		state.image.top + ball.position.y,
-               		state.image.left + ball.position.x + ball.radius * 2,
-                 	state.image.top + ball.position.y + ball.radius * 2
-          		),
-          		Color.WHITE
-       		)
-       		.draw(&state.ctx);
+       		.draw(&state.ctx, RadialGradient{.center = ball.position.add(math.Vec2.new(5, -5)), .radius = ball.radius, .inner_color = Color.LIGHT_BLUE, .outer_color = Color.BLUE});
 
      	const boundary_bounciness = 0.2;
 
@@ -103,13 +107,20 @@ export fn frame() void {
        	const right_overlap = @max(0, ball.position.x - (sapp.widthf() - ball.radius));
         const bottom_overlap = @max(0, ball.position.y - (sapp.heightf() - ball.radius));
 
+        const friction = math.Vec2.new(
+        	1 + @min(1, top_overlap + bottom_overlap) * 0.01,
+        	1 + @min(1, left_overlap + right_overlap) * 0.01
+        );
+
       	ball.position.x += (left_overlap - right_overlap) * (1.0 + boundary_bounciness);
       	ball.position.y += (top_overlap - bottom_overlap) * (1.0 + boundary_bounciness);
 
         for (state.balls.items, 0..) |*other, j| {
         	if (i == j) continue;
+
         	const distance = ball.position.sub(other.position).length();
         	const overlap = ball.radius + other.radius - distance;
+
         	if (overlap > 0) {
         		const direction = ball.position.sub(other.position).normalize();
         		ball.position = ball.position.add(direction.mul(overlap / 2));
@@ -118,18 +129,13 @@ export fn frame() void {
         }
 
         const velocity = ball.position.sub(ball.last_position);
+
         ball.last_position = ball.position;
-     	ball.position = ball.position.add(velocity.add(ball.force.mul(delta_time)));
-      	ball.force = .new(0, 1);
+     	ball.position = ball.position.add(velocity.add(ball.force.mul(delta_time)).div(friction));
+      	ball.force = .new(0, 4);
     }
 
-    var offset: f32 = 0;
-    var scale: f32 = 12;
-    for (0..15) |_| {
-    	Text.from_string(&state.font, "Dies ire dies illa", scale, .new(0, offset), Color.WHITE).draw(&state.ctx);
-     	offset += scale + 2;
-      	scale *= 1.15;
-    }
+    Text.from_string(&state.font, std.fmt.allocPrint(state.arena.allocator(), "FPS: {d}", .{state.fps}) catch unreachable, 20, .new(0, 0)).draw(&state.ctx, Color.from_hex(0x00ff1aff));
 
     state.ctx.endDrawing();
 }
@@ -143,6 +149,7 @@ pub fn main() void {
         .init_cb = init,
         .frame_cb = frame,
         .cleanup_cb = cleanup,
+        .swap_interval = 1,
         .width = 800,
         .height = 600,
         .icon = .{ .sokol_default = true },

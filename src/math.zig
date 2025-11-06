@@ -24,6 +24,22 @@ pub const Rect = struct {
 	pub fn new(left: f32, top: f32, right: f32, bottom: f32) Self {
 		return Self{ .left = left, .top = top, .right = right, .bottom = bottom };
 	}
+
+	pub fn topLeft(self: Self) Vec2 {
+		return Vec2{ .x = self.left, .y = self.top };
+	}
+
+	pub fn topRight(self: Self) Vec2 {
+		return Vec2{ .x = self.right, .y = self.top };
+	}
+
+	pub fn bottomLeft(self: Self) Vec2 {
+		return Vec2{ .x = self.left, .y = self.bottom };
+	}
+
+	pub fn bottomRight(self: Self) Vec2 {
+		return Vec2{ .x = self.right, .y = self.bottom };
+	}
 };
 
 pub const Vec2 = extern struct {

@@ -49,7 +49,6 @@ const Variant = union(Kind) {
 };
 
 variant: Variant,
-color: ?Color = null,
 image: ?math.Rect = null,
 width: f32 = 0,
 outlined: bool = false,
@@ -146,28 +145,14 @@ pub fn rounded(self: Self, top_left: f32, top_right: f32, bottom_left: f32, bott
 	return new;
 }
 
-pub fn fill(self: Self, color: Color) Self {
+pub fn outline(self: Self, width: f32) Self {
 	var new = self;
-	new.color = color;
-	return new;
-}
-
-pub fn fillWithImage(self: Self, source: math.Rect, tint: Color) Self {
-	var new = self;
-	new.image = source;
-	new.color = tint;
-	return new;
-}
-
-pub fn stroke(self: Self, color: Color, width: f32) Self {
-	var new = self;
-	new.color = color;
 	new.width = width;
 	new.outlined = true;
 	return new;
 }
 
-pub fn draw(self: Self, ctx: *Context) void {
+pub fn draw(self: Self, ctx: *Context, paint: anytype) void {
 	if (!std.meta.eql(ctx.transform_stack.getLastOrNull(), ctx.last_transform)) {
 		const transform = ctx.transform_stack.getLastOrNull().?;
 		ctx.transforms.append(shd.Transform{.matrix = @bitCast(transform)}) catch unreachable;
@@ -176,25 +161,21 @@ pub fn draw(self: Self, ctx: *Context) void {
 	const transform_index = ctx.transforms.len - 1;
 	var tex_min = math.Vec2.zero();
 	var tex_max = math.Vec2.zero();
-	const source_top_left = math.Vec2.zero();
-	const source_bottom_right = math.Vec2.zero();
 	if (self.image) |sourceRect| {
-		tex_min = .{.x = sourceRect.left / 2048, .y = sourceRect.top / 2048};
-		tex_max = .{.x = sourceRect.right / 2048, .y = sourceRect.bottom / 2048};
+		tex_min = .{
+			.x = sourceRect.left / @as(f32, @floatFromInt(ctx.paint_atlas.width)),
+			.y = sourceRect.top / @as(f32, @floatFromInt(ctx.paint_atlas.height))
+		};
+		tex_max = .{
+			.x = sourceRect.right / @as(f32, @floatFromInt(ctx.paint_atlas.width)),
+			.y = sourceRect.bottom / @as(f32, @floatFromInt(ctx.paint_atlas.height))
+		};
 	}
-	ctx.paints.append(
-		shd.Paint{
-			.kind = 1 + @as(u32, @intCast(@intFromBool(self.image != null))),
-			.col0 = (self.color orelse Color.WHITE).normalize(),
-			.col1 = .{0, 0, 0, 0},
-			.col2 = .{0, 0, 0, 0},
-			.cv0 = source_top_left,
-			.cv1 = source_bottom_right,
-			.cv2 = math.Vec2.zero(),
-			.cv3 = math.Vec2.zero(),
-			._noise = 0,
-		}
-	) catch unreachable;
+	if (@hasDecl(@TypeOf(paint), "shaderPaint")) {
+		ctx.paints.append(paint.shaderPaint()) catch unreachable;
+	} else {
+		unreachable;
+	}
 	switch (self.variant) {
 		Variant.none => {},
 		Variant.circle => |info| {

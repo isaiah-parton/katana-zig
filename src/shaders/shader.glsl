@@ -454,14 +454,14 @@ void main() {
     } else if (paint.kind == 2u) {
     	// Image
      	out_color = texture(sampler2D(paint_texture, paint_sampler), uv) * paint.col0;
-    } else if (paint.kind == 5u) {
+    } else if (paint.kind == 3u) {
         // Linear gradient
         vec2 dir = paint.cv1 - paint.cv0;
         float det = 1.0 / ((dir.x * dir.x) - (-dir.y * dir.y));
         mat2 xform = mat2(det * dir.x, det * dir.y, det * -dir.y, det * dir.x);
         float t = clamp((xform * (p - paint.cv0)).x, 0.0, 1.0);
         out_color = mix(paint.col0, paint.col1, t + mix(-paint.noise, paint.noise, random(p)));
-    } else if (paint.kind == 6u) {
+    } else if (paint.kind == 4u) {
         // Radial gradient
         float r = paint.cv1.x;
         float t = clamp(length(p - paint.cv0) / r, 0.0, 1.0);
