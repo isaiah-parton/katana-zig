@@ -33,7 +33,7 @@ const Atlas = struct {
 		return Atlas {
 			.allocator = allocator,
 			.image = sg.makeImage(.{
-				.label = std.fmt.allocPrintZ(allocator, "{s} texture", .{label}) catch unreachable,
+				.label = std.fmt.allocPrintSentinel(allocator, "{s} texture", .{label}, 0) catch unreachable,
 				.pixel_format = .RGBA8,
 				.width = @intCast(size),
 				.height = @intCast(size),
@@ -43,7 +43,7 @@ const Atlas = struct {
 				}
 			}),
 			.sampler = sg.makeSampler(.{
-				.label = std.fmt.allocPrintZ(allocator, "{s} sampler", .{label}) catch unreachable,
+				.label = std.fmt.allocPrintSentinel(allocator, "{s} sampler", .{label}, 0) catch unreachable,
 				.min_filter = .LINEAR,
 				.mag_filter = .LINEAR,
 				.wrap_u = .CLAMP_TO_EDGE,
@@ -52,7 +52,7 @@ const Atlas = struct {
 			.data = pixels,
 			.width = size,
 			.height = size,
-			.rects = .init(allocator),
+			.rects = std.ArrayList(math.Rect).initCapacity(allocator, 8) catch unreachable,
 		};
 	}
 
@@ -93,118 +93,119 @@ const Atlas = struct {
 
 	pub fn upload(self: *Atlas) void {
 		var image_data = sg.ImageData{};
-	    image_data.subimage[0][0] = .{.ptr = self.data.ptr, .size = self.data.len};
+	    image_data.mip_levels[0] = .{.ptr = self.data.ptr, .size = self.data.len};
 	    sg.updateImage(self.image, image_data);
 	    self.dirty = false;
 	}
 };
+
+fn Buffer(elem: type) type {
+	return struct {
+		array: std.ArrayList(elem),
+		buffer: sg.Buffer,
+
+		pub fn init(allocator: std.mem.Allocator, label: [*c]const u8, capacity: usize) @This() {
+			return .{
+				.array = std.ArrayList(elem).initCapacity(allocator, capacity) catch unreachable,
+				.buffer = sg.makeBuffer(.{
+			    	.usage = .{ .storage_buffer = true, .dynamic_update = true },
+			     	.size = @sizeOf(shd.ShapeSpatial) * capacity,
+			      	.label = label
+			    }),
+			};
+		}
+
+		pub fn upload(self: *@This()) void {
+			if (self.array.items.len == 0) return;
+			sg.updateBuffer(self.buffer, .{.ptr = @ptrCast(self.array.items.ptr), .size = @sizeOf(elem) * self.array.items.len});
+			self.array.clearRetainingCapacity();
+		}
+
+		pub fn view(self: *const @This()) sg.View {
+			return sg.makeView(.{.storage_buffer = .{.buffer = self.buffer}});
+		}
+	};
+}
 
 const Self = @This();
 
 bindings: sg.Bindings = .{},
 pipeline: sg.Pipeline = .{},
 // Shapes
-shape_spatials: std.BoundedArray(shd.ShapeSpatial, MAX_SHAPES),
-shapes: std.BoundedArray(shd.Shape, MAX_SHAPES),
+shape_spatials: Buffer(shd.ShapeSpatial),
+shapes: Buffer(shd.Shape),
 // Transform matrices
-transforms: std.BoundedArray(shd.Transform, MAX_TRANSFORMS),
+transforms: Buffer(shd.Transform),
 last_transform: ?math.Mat4 = null,
 transform_stack: std.ArrayList(math.Mat4),
 // Fill and stroke styles for shapes
-paints: std.BoundedArray(shd.Paint, MAX_PAINTS),
+paints: Buffer(shd.Paint),
 // Vertices for paths
-vertices: std.BoundedArray(math.Vec2, MAX_VERTICES),
+vertices: Buffer(math.Vec2),
 // Atlas for MSDF shapes
 msdf_atlas: Atlas,
 // Atlas for user images
 paint_atlas: Atlas,
 
-pub fn init() Self {
-    const shape_spatials_buffer = sg.makeBuffer(.{
-    	.usage = .{ .storage_buffer = true, .dynamic_update = true },
-     	.size = @sizeOf(shd.ShapeSpatial) * MAX_SHAPES,
-      	.label = "Shape vertices"
+allocator: std.mem.Allocator,
+
+pub fn init(allocator: std.mem.Allocator) Self {
+    var self = Self{
+    	.shape_spatials = Buffer(shd.ShapeSpatial).init(allocator, "Shape Spatials", MAX_SHAPES),
+    	.shapes = Buffer(shd.Shape).init(allocator, "Shapes", MAX_SHAPES),
+    	.transforms = Buffer(shd.Transform).init(allocator, "Transforms", MAX_TRANSFORMS),
+    	.paints = Buffer(shd.Paint).init(allocator, "Paints", MAX_PAINTS),
+    	.vertices = Buffer(math.Vec2).init(allocator, "Vertices", MAX_VERTICES),
+    	.transform_stack = std.ArrayList(math.Mat4).initCapacity(allocator, 64) catch unreachable,
+    	.msdf_atlas = Atlas.init(allocator, "MSDF", TEXTURE_SIZE),
+    	.paint_atlas = Atlas.init(allocator, "Paint", TEXTURE_SIZE),
+    	.allocator = allocator,
+    };
+
+    self.bindings.views[shd.VIEW_msdf_texture] = sg.makeView(.{
+    	.texture = .{
+     		.image = self.msdf_atlas.image
+     	}
     });
+    self.bindings.samplers[shd.SMP_msdf_sampler] = self.msdf_atlas.sampler;
 
-    const transforms_buffer = sg.makeBuffer(.{
-    	.usage = .{ .storage_buffer = true, .dynamic_update = true },
-     	.size = @sizeOf(shd.Transform) * MAX_TRANSFORMS,
-      	.label = "Transforms"
+    self.bindings.views[shd.VIEW_paint_texture] = sg.makeView(.{
+    	.texture = .{
+     		.image = self.paint_atlas.image,
+     	}
     });
+    self.bindings.samplers[shd.SMP_paint_sampler] = self.paint_atlas.sampler;
 
-    const shapes_buffer = sg.makeBuffer(.{
-    	.usage = .{ .storage_buffer = true, .dynamic_update = true },
-     	.size = @sizeOf(shd.Shape) * MAX_SHAPES,
-      	.label = "Shapes"
-    });
-
-    const paints_buffer = sg.makeBuffer(.{
-    	.usage = .{ .storage_buffer = true, .dynamic_update = true },
-     	.size = @sizeOf(shd.Paint) * MAX_SHAPES,
-      	.label = "Paints"
-    });
-
-    const vertices_buffer = sg.makeBuffer(.{
-    	.usage = .{ .storage_buffer = true, .dynamic_update = true },
-     	.size = @sizeOf(shd.Vertex) * MAX_VERTICES,
-      	.label = "Vertices"
-    });
-
-    var bindings: sg.Bindings = .{};
-
-    const msdf_atlas = Atlas.init(std.heap.page_allocator, "MSDF", TEXTURE_SIZE);
-    bindings.images[shd.shaderImageSlot("msdf_texture").?] = msdf_atlas.image;
-    bindings.samplers[shd.shaderSamplerSlot("msdf_sampler").?] = msdf_atlas.sampler;
-
-    const paint_atlas = Atlas.init(std.heap.page_allocator, "Paint", TEXTURE_SIZE);
-    bindings.images[shd.shaderImageSlot("paint_texture").?] = paint_atlas.image;
-    bindings.samplers[shd.shaderSamplerSlot("paint_sampler").?] = paint_atlas.sampler;
-
-    bindings.storage_buffers[0] = shape_spatials_buffer;
-    bindings.storage_buffers[1] = transforms_buffer;
-    bindings.storage_buffers[2] = shapes_buffer;
-    bindings.storage_buffers[3] = paints_buffer;
-    bindings.storage_buffers[4] = vertices_buffer;
+    self.bindings.views[shd.VIEW_shapesVertexBuffer] = self.shape_spatials.view();
+    self.bindings.views[shd.VIEW_xformsBuffer] = self.transforms.view();
+    self.bindings.views[shd.VIEW_shapesBuffer] = self.shapes.view();
+    self.bindings.views[shd.VIEW_paintsBuffer] = self.paints.view();
+    self.bindings.views[shd.VIEW_verticesBuffer] = self.vertices.view();
 
     // create a shader and pipeline object
-   	const pipeline = sg.makePipeline(.{
-       	.label = "Blade",
-    	.shader = sg.makeShader(shd.shaderShaderDesc(sg.queryBackend())),
-     	.primitive_type = .TRIANGLE_STRIP,
-      	.blend_color = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
-        .color_count = 1,
-        .colors = .{
-        	.{
-         		.pixel_format = .BGRA8,
-           		.write_mask = .RGBA,
-             	.blend = .{
-		            .enabled = true,
-		            .src_factor_rgb = .SRC_ALPHA,
-		            .dst_factor_rgb = .ONE_MINUS_SRC_ALPHA,
-		            .op_rgb = .DEFAULT,
-		            .op_alpha = .REVERSE_SUBTRACT,
-		            .src_factor_alpha = .ONE,
-		            .dst_factor_alpha = .ONE
-	            }
-         	},
-         	.{},
-         	.{},
-         	.{}
-        },
-    });
-
-    return Self{
-        .shape_spatials = .{},
-        .shapes = .{},
-        .transforms = .{},
-        .paints = .{},
-        .vertices = .{},
-        .transform_stack = std.ArrayList(math.Mat4).init(std.heap.page_allocator),
-        .msdf_atlas = msdf_atlas,
-        .paint_atlas = paint_atlas,
-        .pipeline = pipeline,
-        .bindings = bindings,
+    var pipeline_desc = sg.PipelineDesc{
+	    .label = "Blade",
+		.shader = sg.makeShader(shd.shaderShaderDesc(sg.queryBackend())),
+	 	.primitive_type = .TRIANGLE_STRIP,
+	  	.blend_color = .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 },
+	    .color_count = 1,
     };
+    pipeline_desc.colors[0] = .{
+  		.pixel_format = .RGBA8,
+  		.write_mask = .RGBA,
+       	.blend = .{
+            .enabled = true,
+            .src_factor_rgb = .SRC_ALPHA,
+            .dst_factor_rgb = .ONE_MINUS_SRC_ALPHA,
+            .op_rgb = .DEFAULT,
+            .op_alpha = .REVERSE_SUBTRACT,
+            .src_factor_alpha = .ONE,
+            .dst_factor_alpha = .ONE
+        }
+   	};
+   	self.pipeline = sg.makePipeline(pipeline_desc);
+
+    return self;
 }
 
 pub fn pushMatrix(self: *Self) void {
@@ -242,47 +243,17 @@ pub fn loadUserImage(self: *Self, path: [:0]const u8) !math.Rect {
 }
 
 pub fn uploadData(self: *Self) void {
-	if (self.shape_spatials.len > 0) {
-        sg.updateBuffer(
-        	self.bindings.storage_buffers[0],
-         	sg.Range{ .ptr = @ptrCast(&self.shape_spatials.buffer), .size = @intCast(self.shape_spatials.len * @sizeOf(shd.ShapeSpatial)) }
-        );
-        self.shape_spatials.clear();
-    }
-    if (self.transforms.len > 0) {
-        sg.updateBuffer(
-        	self.bindings.storage_buffers[1],
-         	sg.Range{ .ptr = @ptrCast(&self.transforms.buffer), .size = @intCast(self.transforms.len * @sizeOf(shd.Transform)) }
-        );
-        self.transforms.clear();
-    }
-    if (self.shapes.len > 0) {
-        sg.updateBuffer(
-        	self.bindings.storage_buffers[2],
-         	sg.Range{ .ptr = @ptrCast(&self.shapes.buffer), .size = @intCast(self.shapes.len * @sizeOf(shd.Shape)) }
-        );
-        self.shapes.clear();
-    }
-    if (self.paints.len > 0) {
-        sg.updateBuffer(
-        	self.bindings.storage_buffers[3],
-         	sg.Range{ .ptr = @ptrCast(&self.paints.buffer), .size = @intCast(self.paints.len * @sizeOf(shd.Paint)) }
-        );
-        self.paints.clear();
-    }
-    if (self.vertices.len > 0) {
-    	sg.updateBuffer(
-     		self.bindings.storage_buffers[4],
-       		sg.Range{.ptr = @ptrCast(&self.vertices.buffer), .size = @intCast(self.vertices.len * @sizeOf(math.Vec2))},
-     	);
-     	self.vertices.clear();
-    }
+	self.shape_spatials.upload();
+	self.shapes.upload();
+	self.paints.upload();
+	self.transforms.upload();
+	self.vertices.upload();
 }
 
 pub fn beginDrawing(self: *Self) void {
 	self.last_transform = null;
 	self.transform_stack.clearRetainingCapacity();
-	self.paints.append(shd.Paint{
+	self.paints.array.append(self.allocator, shd.Paint{
 		.kind = 0,
 		._noise = 0.0,
 		.col0 = undefined,
@@ -293,7 +264,7 @@ pub fn beginDrawing(self: *Self) void {
 		.cv2 = undefined,
 		.cv3 = undefined
 	}) catch unreachable;
-    self.transforms.append(shd.Transform{
+    self.transforms.array.append(self.allocator, shd.Transform{
     	.matrix = .{
      		1.0, 0.0, 0.0, 0.0,
        		0.0, 1.0, 0.0, 0.0,
@@ -304,7 +275,7 @@ pub fn beginDrawing(self: *Self) void {
 }
 
 pub fn endDrawing(self: *Self) void {
-	const shape_count = self.shapes.len;
+	const shape_count = self.shapes.array.items.len;
 
 	if (self.msdf_atlas.dirty) {
 		self.msdf_atlas.upload();

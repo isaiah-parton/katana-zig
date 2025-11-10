@@ -13,8 +13,8 @@ pub fn build(b: *std.Build) !void {
         .input = "src/shaders/shader.glsl",
         .output = "src/shaders/shader.glsl.zig",
         .slang = .{
-            .glsl430 = false,
-            .glsl410 = true,
+            .glsl430 = true,
+            .glsl410 = false,
             .glsl310es = false,
             .glsl300es = false,
             .metal_macos = true,
@@ -25,8 +25,8 @@ pub fn build(b: *std.Build) !void {
     });
 
     const dep_zmath = b.dependency("zmath", .{
-    	.target = target,
-     	.optimize = optimize,
+        .target = target,
+        .optimize = optimize,
     });
 
     const dep_sokol = b.dependency("sokol", .{
@@ -36,22 +36,18 @@ pub fn build(b: *std.Build) !void {
 
     const dep_zstdbi = b.dependency("zstbi", .{});
 
-    const imports: []const std.Build.Module.Import = &.{
-	    .{
-	        .name = "sokol",
-	        .module = dep_sokol.module("sokol"),
-	    },
-	    .{
-	    	.name = "zmath",
-	     	.module = dep_zmath.module("root"),
-	    },
-		.{
-			.name = "zstbi",
-			.module = dep_zstdbi.module("root"),
-		}
-    };
+    const imports: []const std.Build.Module.Import = &.{ .{
+        .name = "sokol",
+        .module = dep_sokol.module("sokol"),
+    }, .{
+        .name = "zmath",
+        .module = dep_zmath.module("root"),
+    }, .{
+        .name = "zstbi",
+        .module = dep_zstdbi.module("root"),
+    } };
 
-    const lib_mod = b.createModule(.{ .root_source_file = b.path("src/root.zig"), .target = target, .optimize = optimize, .imports = imports});
+    const lib_mod = b.createModule(.{ .root_source_file = b.path("src/root.zig"), .target = target, .optimize = optimize, .imports = imports });
 
     const exe_mod = b.createModule(.{ .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize, .imports = imports });
 

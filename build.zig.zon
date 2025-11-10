@@ -37,20 +37,20 @@
     // internet connectivity.
     .dependencies = .{
         .sokol = .{
-            .url = "git+https://github.com/floooh/sokol-zig.git?ref=zig-0.14.1#162ed80f645863c4dcf09e1ba6b1f40e2d4beffe",
-            .hash = "sokol-0.1.0-pb1HK26VLQC1XOkHDW-5TglgwypAKIHGR2HPOTP6limn",
+            .url = "git+https://github.com/floooh/sokol-zig.git#1c217971533e3aa634ecbfbe13ff776e05701e0a",
+            .hash = "sokol-0.1.0-pb1HK3TYLgCx8lOxdLVWIVDcAzacxO8YDfyw2Er-_2nN",
         },
         .shdc = .{
-            .url = "git+https://github.com/floooh/sokol-tools-bin#6621a22d61f7936df7639f229a683098f75011d7",
-            .hash = "sokolshdc-0.1.0-r2KZDvbikwSaF5KdkyYXN7yS4FLPhDWDSlOS_IizdV9G",
+            .url = "git+https://github.com/floooh/sokol-tools-bin#f190d396afac7d328ce14d098c9ab7448dfc920b",
+            .hash = "sokolshdc-0.1.0-r2KZDr4qbAT82i8_UYph-mz3b-ACM3tQr93-rZQ94ghV",
         },
         .zmath = .{
             .url = "git+https://github.com/zig-gamedev/zmath.git#3a5955b2b72cd081563fbb084eff05bffd1e3fbb",
             .hash = "zmath-0.11.0-dev-wjwivdMsAwD-xaLj76YHUq3t9JDH-X16xuMTmnDzqbu2",
         },
         .zstbi = .{
-            .url = "git+https://github.com/zig-gamedev/zstbi#094c4bba5cdbec167d3f6aaa98cccccd5c99145f",
-            .hash = "zstbi-0.11.0-dev-L0Ea_-eVBwCl8RYA98PhLDw3Fhw5k7FJOHSMDKWDOvqx",
+            .url = "git+https://github.com/zig-gamedev/zstbi#2c4b3100ccb7aed90ecc9439030899764e2a8d47",
+            .hash = "zstbi-0.11.0-dev-L0Ea_yaWBwAHwFoCuyjkFyaiSsbjt4UOrkntR0c_nmzz",
         },
     },
     .paths = .{

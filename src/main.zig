@@ -38,7 +38,7 @@ const state = struct {
 	var last_second: std.time.Instant = undefined;
     var ctx: Context = undefined;
     var font: Font = undefined;
-    var balls: std.ArrayList(Ball) = .init(std.heap.page_allocator);
+    var balls: std.ArrayList(Ball) = .{};
     var rng = std.Random.DefaultPrng.init(911);
     var image: math.Rect = undefined;
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
@@ -56,12 +56,16 @@ const Transform = struct {
 export fn init() void {
 	zstbi.init(std.heap.page_allocator);
 
+	state.last_second = std.time.Instant.now() catch unreachable;
+
+	std.log.info("{any}", .{sglue.environment()});
+
     sg.setup(.{
         .environment = sglue.environment(),
         .logger = .{ .func = slog.func },
     });
 
-    state.ctx = .init();
+    state.ctx = .init(state.gpa.allocator());
     state.font = Font.loadFromFiles("src/fonts/Lexend-Medium.png", "src/fonts/Lexend-Medium.json") catch |e| {
     	std.log.err("{any}", .{e});
      	unreachable;
@@ -77,7 +81,7 @@ export fn init() void {
     };
 
     for (0..100) |_| {
-    	state.balls.append(Ball.spawn(
+    	state.balls.append(state.gpa.allocator(), Ball.spawn(
      		.new(state.rng.random().float(f32) * sapp.widthf(), state.rng.random().float(f32) * sapp.heightf()),
        		math.Vec2.new(state.rng.random().float(f32) * 2 - 1, state.rng.random().float(f32) * 2 - 1).scale(100),
      	)) catch unreachable;

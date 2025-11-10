@@ -1,3 +1,3 @@
 const std = @import("std");
 
-pub usingnamespace @import("context.zig");
+pub const Context = @import("context.zig");

@@ -155,10 +155,10 @@ pub fn outline(self: Self, width: f32) Self {
 pub fn draw(self: Self, ctx: *Context, paint: anytype) void {
 	if (!std.meta.eql(ctx.transform_stack.getLastOrNull(), ctx.last_transform)) {
 		const transform = ctx.transform_stack.getLastOrNull().?;
-		ctx.transforms.append(shd.Transform{.matrix = @bitCast(transform)}) catch unreachable;
+		ctx.transforms.array.append(ctx.allocator, shd.Transform{.matrix = @bitCast(transform)}) catch unreachable;
 		ctx.last_transform = transform;
 	}
-	const transform_index = ctx.transforms.len - 1;
+	const transform_index = ctx.transforms.array.items.len - 1;
 	var tex_min = math.Vec2.zero();
 	var tex_max = math.Vec2.zero();
 	if (self.image) |sourceRect| {
@@ -172,21 +172,21 @@ pub fn draw(self: Self, ctx: *Context, paint: anytype) void {
 		};
 	}
 	if (@hasDecl(@TypeOf(paint), "shaderPaint")) {
-		ctx.paints.append(paint.shaderPaint()) catch unreachable;
+		ctx.paints.array.append(ctx.allocator, paint.shaderPaint()) catch unreachable;
 	} else {
 		unreachable;
 	}
 	switch (self.variant) {
 		Variant.none => {},
 		Variant.circle => |info| {
-			ctx.shape_spatials.append(.{
+			ctx.shape_spatials.array.append(ctx.allocator, .{
 				.quad_min = info.center.sub(info.radius),
 				.quad_max = info.center.add(info.radius),
 				.tex_min = tex_min,
 				.tex_max = tex_max,
 				.xform = @intCast(transform_index)
 			}) catch unreachable;
-			ctx.shapes.append(
+			ctx.shapes.array.append(ctx.allocator,
 				.{
 					.kind = @intFromEnum(self.variant),
 					.mode = 0,
@@ -199,19 +199,19 @@ pub fn draw(self: Self, ctx: *Context, paint: anytype) void {
 					.start = 0,
 					.count = 0,
 					.stroke = 0,
-					.paint = @intCast(ctx.paints.len - 1),
+					.paint = @intCast(ctx.paints.array.items.len - 1),
 				}
 			) catch unreachable;
 		},
 		Variant.rect => |info| {
-			ctx.shape_spatials.append(.{
+			ctx.shape_spatials.array.append(ctx.allocator, .{
 				.quad_min = info.top_left,
 				.quad_max = info.bottom_right,
 				.tex_min = tex_min,
 				.tex_max = tex_max,
 				.xform = @intCast(transform_index)
 			}) catch unreachable;
-			ctx.shapes.append(.{
+			ctx.shapes.array.append(ctx.allocator, .{
 				.kind = @intFromEnum(self.variant),
 				.mode = 0,
 				.next = 0,
@@ -223,19 +223,19 @@ pub fn draw(self: Self, ctx: *Context, paint: anytype) void {
 				.start = 0,
 				.count = 0,
 				.stroke = @intFromBool(self.outlined),
-				.paint = @intCast(ctx.paints.len - 1)
+				.paint = @intCast(ctx.paints.array.items.len - 1)
 			}) catch unreachable;
 		},
 		Variant.arc => {},
 		Variant.line => |points| {
-			ctx.shape_spatials.append(.{
+			ctx.shape_spatials.array.append(ctx.allocator, .{
 				.quad_min = math.Vec2.min(.{points[0], points[1]}).sub(self.width),
 				.quad_max = math.Vec2.max(.{points[0], points[1]}).add(self.width),
 				.tex_min = tex_min,
 				.tex_max = tex_max,
 				.xform = @intCast(transform_index),
 			}) catch unreachable;
-			ctx.shapes.append(.{
+			ctx.shapes.array.append(ctx.allocator, .{
 				.kind = @intFromEnum(self.variant),
 				.mode = 0,
 				.next = 0,
@@ -247,18 +247,18 @@ pub fn draw(self: Self, ctx: *Context, paint: anytype) void {
 				.start = 0,
 				.count = 0,
 				.stroke = 0,
-				.paint = @intCast(ctx.paints.len - 1)
+				.paint = @intCast(ctx.paints.array.items.len - 1)
 			}) catch unreachable;
 		},
 		Variant.bezier => |points| {
-			ctx.shape_spatials.append(.{
+			ctx.shape_spatials.array.append(ctx.allocator, .{
 				.quad_min = math.Vec2.min(.{points[0], points[1], points[2]}).sub(self.width),
 				.quad_max = math.Vec2.max(.{points[0], points[1], points[2]}).add(self.width),
 				.tex_min = tex_min,
 				.tex_max = tex_max,
 				.xform = @intCast(transform_index),
 			}) catch unreachable;
-			ctx.shapes.append(.{
+			ctx.shapes.array.append(ctx.allocator, .{
 				.kind = @intFromEnum(self.variant),
 				.mode = 0,
 				.next = 0,
@@ -270,26 +270,26 @@ pub fn draw(self: Self, ctx: *Context, paint: anytype) void {
 				.start = 0,
 				.count = 0,
 				.stroke = 0,
-				.paint = @intCast(ctx.paints.len - 1)
+				.paint = @intCast(ctx.paints.array.items.len - 1)
 			}) catch unreachable;
 		},
 		Variant.path => |info| {
 			var min_pos = math.Vec2.inf();
 			var max_pos = math.Vec2.zero();
-			const first_vertex = ctx.vertices.len;
+			const first_vertex = ctx.vertices.array.items.len;
 			for (info.points.items) |point| {
 				min_pos = math.Vec2.min(.{min_pos, point});
 				max_pos = math.Vec2.max(.{max_pos, point});
-				ctx.vertices.append(point) catch unreachable;
+				ctx.vertices.array.append(ctx.allocator, point) catch unreachable;
 			}
-			ctx.shape_spatials.append(.{
+			ctx.shape_spatials.array.append(ctx.allocator, .{
 				.quad_min = min_pos.sub(self.width),
 				.quad_max = max_pos.add(self.width),
 				.tex_min = tex_min,
 				.tex_max = tex_max,
 				.xform = @intCast(transform_index),
 			}) catch unreachable;
-			ctx.shapes.append(.{
+			ctx.shapes.array.append(ctx.allocator, .{
 				.kind = @intFromEnum(self.variant),
 				.mode = 0,
 				.next = 0,
@@ -301,18 +301,18 @@ pub fn draw(self: Self, ctx: *Context, paint: anytype) void {
 				.start = @intCast(first_vertex),
 				.count = @intCast(@divFloor(info.points.items.len, 3)),
 				.stroke = @intFromBool(self.outlined),
-				.paint = @intCast(ctx.paints.len - 1)
+				.paint = @intCast(ctx.paints.array.items.len - 1)
 			}) catch unreachable;
 		},
 		Variant.msdf => |info| {
-			ctx.shape_spatials.append(.{
+			ctx.shape_spatials.array.append(ctx.allocator, .{
 				.quad_min = info.top_left,
 				.quad_max = info.bottom_right,
 				.tex_min = info.source_top_left.div(2048),
 				.tex_max = info.source_bottom_right.div(2048),
 				.xform = @intCast(transform_index),
 			}) catch unreachable;
-			ctx.shapes.append(.{
+			ctx.shapes.array.append(ctx.allocator, .{
 				.kind = @intFromEnum(self.variant),
 				.mode = 0,
 				.next = 0,
@@ -324,7 +324,7 @@ pub fn draw(self: Self, ctx: *Context, paint: anytype) void {
 				.start = 0,
 				.count = 0,
 				.stroke = @intFromBool(self.outlined),
-				.paint = @intCast(ctx.paints.len - 1)
+				.paint = @intCast(ctx.paints.array.items.len - 1)
 			}) catch unreachable;
 		}
 	}

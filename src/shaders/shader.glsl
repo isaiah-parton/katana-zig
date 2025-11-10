@@ -1,3 +1,5 @@
+#version 450 core
+
 @header const math = @import("../math.zig")
 @ctype vec2 math.Vec2
 
@@ -110,9 +112,9 @@ layout(std430, binding = 4) readonly buffer verticesBuffer
 	Vertex vertices[];
 };
 
-layout(binding = 2) uniform texture2D msdf_texture;
+layout(binding = 5) uniform texture2D msdf_texture;
 layout(binding = 3) uniform sampler msdf_sampler;
-layout(binding = 4) uniform texture2D paint_texture;
+layout(binding = 6) uniform texture2D paint_texture;
 layout(binding = 5) uniform sampler paint_sampler;
 
 in vec2 p;
