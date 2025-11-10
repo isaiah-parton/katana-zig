@@ -182,6 +182,8 @@ pub fn init(allocator: std.mem.Allocator) Self {
     self.bindings.views[shd.VIEW_paintsBuffer] = self.paints.view();
     self.bindings.views[shd.VIEW_verticesBuffer] = self.vertices.view();
 
+    const environment = sglue.environment();
+
     // create a shader and pipeline object
     var pipeline_desc = sg.PipelineDesc{
 	    .label = "Blade",
@@ -191,7 +193,7 @@ pub fn init(allocator: std.mem.Allocator) Self {
 	    .color_count = 1,
     };
     pipeline_desc.colors[0] = .{
-  		.pixel_format = .RGBA8,
+  		.pixel_format = environment.defaults.color_format,
   		.write_mask = .RGBA,
        	.blend = .{
             .enabled = true,

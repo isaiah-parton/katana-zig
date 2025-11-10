@@ -58,8 +58,6 @@ export fn init() void {
 
 	state.last_second = std.time.Instant.now() catch unreachable;
 
-	std.log.info("{any}", .{sglue.environment()});
-
     sg.setup(.{
         .environment = sglue.environment(),
         .logger = .{ .func = slog.func },
