@@ -39,6 +39,7 @@ const Variant = union(Kind) {
 	path: struct {
 		origin: math.Vec2,
 		points: std.ArrayList(math.Vec2),
+		allocator: std.mem.Allocator,
 	},
 	msdf: struct {
 		top_left: math.Vec2,
@@ -107,7 +108,7 @@ pub fn msdf(top_left: math.Vec2, bottom_right: math.Vec2, source_top_left: math.
 
 const PathOptions = struct {
 	origin: math.Vec2,
-	allocator: std.mem.Allocator = std.heap.page_allocator,
+	allocator: std.mem.Allocator,
 };
 
 pub fn path(opts: PathOptions) Self {
@@ -115,7 +116,8 @@ pub fn path(opts: PathOptions) Self {
 		.variant = .{
 			.path = .{
 				.origin = opts.origin,
-				.points = std.ArrayList(math.Vec2).init(opts.allocator)
+				.points = std.ArrayList(math.Vec2).initCapacity(opts.allocator, 8) catch unreachable,
+				.allocator = opts.allocator
 			}
 		}
 	};
@@ -123,16 +125,18 @@ pub fn path(opts: PathOptions) Self {
 
 pub fn lineTo(self: *Self, point: math.Vec2) void {
 	const last_point = self.variant.path.points.getLastOrNull() orelse self.variant.path.origin;
-	self.variant.path.points.append(last_point) catch unreachable;
-	self.variant.path.points.append(last_point.lerp(point, 0.5)) catch unreachable;
-	self.variant.path.points.append(point) catch unreachable;
+	const allocator = self.variant.path.allocator;
+	self.variant.path.points.append(allocator, last_point) catch unreachable;
+	self.variant.path.points.append(allocator, last_point.lerp(point, 0.5)) catch unreachable;
+	self.variant.path.points.append(allocator, point) catch unreachable;
 }
 
 pub fn quadTo(self: *Self, control: math.Vec2, point: math.Vec2) void {
 	const last_point = self.variant.path.points.getLastOrNull() orelse self.variant.path.origin;
-	self.variant.path.points.append(last_point) catch unreachable;
-	self.variant.path.points.append(control) catch unreachable;
-	self.variant.path.points.append(point) catch unreachable;
+	const allocator = self.variant.path.allocator;
+	self.variant.path.points.append(allocator, last_point) catch unreachable;
+	self.variant.path.points.append(allocator, control) catch unreachable;
+	self.variant.path.points.append(allocator, point) catch unreachable;
 }
 
 pub fn close(self: *Self) void {

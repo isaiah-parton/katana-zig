@@ -130,6 +130,7 @@ fn Buffer(elem: type) type {
 
 const Self = @This();
 
+clear_color: Color = .BLACK,
 bindings: sg.Bindings = .{},
 pipeline: sg.Pipeline = .{},
 // Shapes
@@ -308,7 +309,7 @@ pub fn endDrawing(self: *Self) void {
 	self.uploadData();
 
 	var pass_action = sg.PassAction{};
-    pass_action.colors[0] = .{.load_action = .CLEAR, .clear_value = .{.r = 0.02, .g = 0.05, .b = 0.1, .a = 1}};
+    pass_action.colors[0] = .{.load_action = .CLEAR, .clear_value = @bitCast(self.clear_color.normalize())};
 
     const vertex_params = shd.VsParams{
     	.screen_size = .new(

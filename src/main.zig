@@ -114,6 +114,18 @@ export fn frame() void {
     }
     state.cursor_x += (state.cursor_target_x - state.cursor_x) * 15 * delta_time;
 
+    {
+    	const origin = math.Vec2.new(sapp.widthf() / 2, sapp.heightf() / 2);
+    	var shape = Shape.path(.{ .origin = origin.add(math.Vec2.new(0, -100)), .allocator = state.arena.allocator() });
+     	shape.lineTo(origin.add(math.Vec2.new(-100, 0)));
+      	// shape.quadTo(origin.add(math.Vec2.new(-100, 100)), origin.add(math.Vec2.new(0, 80)));
+     	shape.lineTo(origin.add(math.Vec2.new(0, 100)));
+     	shape.lineTo(origin.add(math.Vec2.new(100, 0)));
+     	shape.close();
+      	shape.glow(200).draw(&state.ctx, Color.WHITE);
+      	shape.draw(&state.ctx, Color.WHITE);
+    }
+
     state.ctx.endDrawing();
 }
 
