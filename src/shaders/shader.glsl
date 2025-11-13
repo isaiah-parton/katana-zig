@@ -395,6 +395,10 @@ float sd_shape(Shape shape, vec2 pos) {
     } else if (shape.stroke == 3u) {
         float r = shape.width * 0.5;
         d = abs(d - r) - r;
+    } else if (shape.stroke == 4u) {
+    	if (d > 0) {
+     		d = smoothstep(0.0, 1.0, d / shape.width);
+       	}
     }
 
     if (shape.stroke > 0u && shape.width < 0.5) {

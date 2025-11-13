@@ -43,7 +43,7 @@ export fn init() void {
 	zstbi.init(std.heap.page_allocator);
 
 	state.last_second = std.time.Instant.now() catch unreachable;
-	state.text =	std.ArrayList(u8).initCapacity(state.gpa.allocator(), 64) catch unreachable;
+	state.text = std.ArrayList(u8).initCapacity(state.gpa.allocator(), 64) catch unreachable;
 
     sg.setup(.{
         .environment = sglue.environment(),
@@ -96,8 +96,9 @@ export fn frame() void {
     Text.from_string(&state.font, std.fmt.allocPrint(state.arena.allocator(), "FPS: {d}", .{state.fps}) catch unreachable, 20, .new(0, 0)).draw(&state.ctx, Color.from_hex(0x00ff1aff));
 
     const text = Text.from_string(&state.font, state.text.items, 20, .new(0, 32));
-    const mask_shape = Shape.rect(.new(0, 30), .new(100, 30 + text.size.y + 4)).rounded(8, 8, 8, 8);
-    mask_shape.draw(&state.ctx, Color.RED);
+    const mask_shape = Shape.rect(.new(0, 30), .new(300, 30 + text.size.y + 4)).rounded(8, 8, 8, 8);
+    mask_shape.glow(100).draw(&state.ctx, Color.BLACK);
+    mask_shape.draw(&state.ctx, Color.from_hex(0x4b4b4bff));
     state.ctx.pushMask(mask_shape);
     text.draw(&state.ctx, Color.WHITE);
 

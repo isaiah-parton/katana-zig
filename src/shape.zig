@@ -51,7 +51,7 @@ const Variant = union(Kind) {
 variant: Variant,
 image: ?math.Rect = null,
 width: f32 = 0,
-outlined: bool = false,
+outline_type: u32 = 0,
 
 pub fn circle(center: math.Vec2, radius: f32) Self {
     return Self{
@@ -148,7 +148,14 @@ pub fn rounded(self: Self, top_left: f32, top_right: f32, bottom_left: f32, bott
 pub fn outline(self: Self, width: f32) Self {
 	var new = self;
 	new.width = width;
-	new.outlined = true;
+	new.outline_type = 1;
+	return new;
+}
+
+pub fn glow(self: Self, radius: f32) Self {
+	var new = self;
+	new.width = radius;
+	new.outline_type = 4;
 	return new;
 }
 
@@ -228,7 +235,7 @@ pub fn drawEx(self: Self, ctx: *Context, paint: anytype) DrawResult {
 			shape.cv1 = info.bottom_right;
 			shape.radius = info.corner_radii;
 			shape.width = self.width;
-			shape.stroke = @intFromBool(self.outlined);
+			shape.stroke = @intCast(self.outline_type);
 		},
 		Variant.arc => {},
 		Variant.line => |points| {
@@ -260,7 +267,7 @@ pub fn drawEx(self: Self, ctx: *Context, paint: anytype) DrawResult {
 			shape.width = self.width;
 			shape.start = @intCast(first_vertex);
 			shape.count = @intCast(@divFloor(info.points.items.len, 3));
-			shape.stroke = @intFromBool(self.outlined);
+			shape.stroke = @intCast(self.outline_type);
 		},
 		Variant.msdf => |info| {
 			shape_spatial.quad_min = info.top_left;
@@ -268,7 +275,7 @@ pub fn drawEx(self: Self, ctx: *Context, paint: anytype) DrawResult {
 			shape_spatial.tex_min = info.source_top_left.div(2048);
 			shape_spatial.tex_max = info.source_bottom_right.div(2048);
 			shape.width = self.width;
-			shape.stroke = @intFromBool(self.outlined);
+			shape.stroke = @intCast(self.outline_type);
 		}
 	}
 
@@ -288,6 +295,13 @@ pub fn drawEx(self: Self, ctx: *Context, paint: anytype) DrawResult {
 		shape_spatial.quad_min.y += top;
 		shape_spatial.quad_max.x -= right;
 		shape_spatial.quad_max.y -= bottom;
+	}
+
+	if (shape.stroke == 4) {
+		shape_spatial.quad_min.x -= shape.width;
+		shape_spatial.quad_min.y -= shape.width;
+		shape_spatial.quad_max.x += shape.width;
+		shape_spatial.quad_max.y += shape.width;
 	}
 
 	if (shape_spatial.quad_min.x >= shape_spatial.quad_max.x or shape_spatial.quad_min.y >= shape_spatial.quad_max.y) {
