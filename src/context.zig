@@ -7,6 +7,7 @@ const sglue = sokol.glue;
 const sapp = sokol.app;
 const math = @import("math.zig");
 const Color = @import("color.zig");
+const Shape = @import("shape.zig");
 
 pub const MAX_SHAPES = 2048;
 pub const MAX_TRANSFORMS = 512;
@@ -146,6 +147,8 @@ vertices: Buffer(math.Vec2),
 msdf_atlas: Atlas,
 // Atlas for user images
 paint_atlas: Atlas,
+// Masks
+mask_stack: std.ArrayList(Mask),
 
 allocator: std.mem.Allocator,
 
@@ -157,6 +160,7 @@ pub fn init(allocator: std.mem.Allocator) Self {
     	.paints = Buffer(shd.Paint).init(allocator, "Paints", MAX_PAINTS),
     	.vertices = Buffer(math.Vec2).init(allocator, "Vertices", MAX_VERTICES),
     	.transform_stack = std.ArrayList(math.Mat4).initCapacity(allocator, 64) catch unreachable,
+    	.mask_stack = std.ArrayList(Mask).initCapacity(allocator, 8) catch unreachable,
     	.msdf_atlas = Atlas.init(allocator, "MSDF", TEXTURE_SIZE),
     	.paint_atlas = Atlas.init(allocator, "Paint", TEXTURE_SIZE),
     	.allocator = allocator,
@@ -208,6 +212,22 @@ pub fn init(allocator: std.mem.Allocator) Self {
    	self.pipeline = sg.makePipeline(pipeline_desc);
 
     return self;
+}
+
+const Mask = struct {
+	index: u32,
+	top_left: math.Vec2,
+	bottom_right: math.Vec2,
+};
+
+pub fn pushMask(self: *Self, shape: Shape) void {
+	const result = shape.drawEx(self, null);
+	self.shapes.array.items[result.index].mode = 2;
+	self.mask_stack.append(self.allocator, Mask{.index = result.index, .top_left = result.bounds.topLeft(), .bottom_right = result.bounds.bottomRight()}) catch unreachable;
+}
+
+pub fn popMask(self: *Self) void {
+	_ = self.mask_stack.pop();
 }
 
 pub fn pushMatrix(self: *Self) void {

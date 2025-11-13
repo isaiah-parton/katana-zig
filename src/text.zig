@@ -13,8 +13,10 @@ pub fn from_string(font: *Font, string: []const u8, scale: f32, origin: math.Vec
 	var pos = origin;
 	var shapes = std.ArrayList(Shape).initCapacity(std.heap.page_allocator, string.len) catch unreachable;
 	var size = math.Vec2.zero();
-	for (string) |char| {
-		if (font.getGlyph(char)) |glyph| {
+	var view = std.unicode.Utf8View.init(string) catch unreachable;
+	var iter = view.iterator();
+	while (iter.nextCodepoint()) |char| {
+		if (font.getGlyph(char) orelse font.getGlyph('?')) |glyph| {
 		    const top_left = pos.add(math.Vec2.new(glyph.planeBounds.left, font.metrics.ascender + font.metrics.descender - glyph.planeBounds.top).scale(scale));
 		    const bottom_right = pos.add(math.Vec2.new(glyph.planeBounds.right, font.metrics.ascender + font.metrics.descender - glyph.planeBounds.bottom).scale(scale));
 		    shapes.append(std.heap.page_allocator, Shape.msdf(
@@ -24,10 +26,10 @@ pub fn from_string(font: *Font, string: []const u8, scale: f32, origin: math.Vec
 		      	.new(glyph.atlasBounds.right, @as(f32, @floatFromInt(font.image.height)) - glyph.atlasBounds.bottom)
 		    )) catch unreachable;
 			size.x += glyph.advance * scale;
-			size.y = @max(size.y, bottom_right.y - top_left.y);
 			pos.x += glyph.advance * scale;
 		}
 	}
+	size.y = @max(size.y, font.metrics.ascender * scale);
 	return Self {
 		.shapes = shapes,
 		.size = size,

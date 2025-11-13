@@ -14,23 +14,6 @@ const Shape = @import("shape.zig");
 const Text = @import("text.zig");
 const RadialGradient = @import("radial_gradient.zig");
 
-const Ball = struct {
-	position: math.Vec2,
-	last_position: math.Vec2,
-	force: math.Vec2,
-	radius: f32,
-	color: Color,
-
-	pub fn spawn(position: math.Vec2, force: math.Vec2) Ball {
-		return Ball{
-			.position = position,
-			.last_position = position,
-			.force = force,
-			.radius = 10 + state.rng.random().float(f32) * 20,
-			.color = Color.BLUE,
-		};
-	}
-};
 
 const state = struct {
 	var frame_count: u32 = 0;
@@ -38,11 +21,14 @@ const state = struct {
 	var last_second: std.time.Instant = undefined;
     var ctx: Context = undefined;
     var font: Font = undefined;
-    var balls: std.ArrayList(Ball) = .{};
     var rng = std.Random.DefaultPrng.init(911);
     var image: math.Rect = undefined;
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     var arena: std.heap.ArenaAllocator = .init(gpa.allocator());
+    var text: std.ArrayList(u8) = undefined;
+    var cursor_x: f32 = 0;
+    var cursor_target_x: f32 = 0;
+    var last_input_time: std.time.Instant = undefined;
 };
 
 const Transform = struct {
@@ -57,6 +43,7 @@ export fn init() void {
 	zstbi.init(std.heap.page_allocator);
 
 	state.last_second = std.time.Instant.now() catch unreachable;
+	state.text =	std.ArrayList(u8).initCapacity(state.gpa.allocator(), 64) catch unreachable;
 
     sg.setup(.{
         .environment = sglue.environment(),
@@ -73,17 +60,25 @@ export fn init() void {
      	unreachable;
     };
 
-    state.image = state.ctx.loadUserImage("src/images/pexels-pixabay-315191.jpg") catch |e| {
-    	std.log.err("{any}", .{e});
-     	unreachable;
-    };
+    state.last_input_time = std.time.Instant.now() catch unreachable;
+}
 
-    for (0..100) |_| {
-    	state.balls.append(state.gpa.allocator(), Ball.spawn(
-     		.new(state.rng.random().float(f32) * sapp.widthf(), state.rng.random().float(f32) * sapp.heightf()),
-       		math.Vec2.new(state.rng.random().float(f32) * 2 - 1, state.rng.random().float(f32) * 2 - 1).scale(100),
-     	)) catch unreachable;
-    }
+export fn event(p: [*c]const sapp.Event) void {
+	const e: *const sapp.Event = @ptrCast(p);
+	switch (e.type) {
+		.CHAR => {
+			var bytes: [4]u8 = undefined;
+			const len = std.unicode.utf8Encode(@intCast(e.char_code), bytes[0..4]) catch unreachable;
+			state.text.appendSlice(state.gpa.allocator(), bytes[0..len]) catch unreachable;
+			state.last_input_time = std.time.Instant.now() catch unreachable;
+		},
+		.KEY_DOWN => {
+			if (e.key_code == .BACKSPACE) {
+				_ = state.text.pop();
+			}
+		},
+		else => {}
+	}
 }
 
 export fn frame() void {
@@ -98,46 +93,25 @@ export fn frame() void {
 
     state.ctx.beginDrawing();
 
-    for (state.balls.items, 0..) |*ball, i| {
-    	Shape.circle(ball.position, ball.radius)
-       		.draw(&state.ctx, RadialGradient{.center = ball.position.add(math.Vec2.new(5, -5)), .radius = ball.radius, .inner_color = Color.LIGHT_BLUE, .outer_color = Color.BLUE});
-
-     	const boundary_bounciness = 0.2;
-
-     	const left_overlap = @max(0, ball.radius - ball.position.x);
-      	const top_overlap = @max(0, ball.radius - ball.position.y);
-       	const right_overlap = @max(0, ball.position.x - (sapp.widthf() - ball.radius));
-        const bottom_overlap = @max(0, ball.position.y - (sapp.heightf() - ball.radius));
-
-        const friction = math.Vec2.new(
-        	1 + @min(1, top_overlap + bottom_overlap) * 0.01,
-        	1 + @min(1, left_overlap + right_overlap) * 0.01
-        );
-
-      	ball.position.x += (left_overlap - right_overlap) * (1.0 + boundary_bounciness);
-      	ball.position.y += (top_overlap - bottom_overlap) * (1.0 + boundary_bounciness);
-
-        for (state.balls.items, 0..) |*other, j| {
-        	if (i == j) continue;
-
-        	const distance = ball.position.sub(other.position).length();
-        	const overlap = ball.radius + other.radius - distance;
-
-        	if (overlap > 0) {
-        		const direction = ball.position.sub(other.position).normalize();
-        		ball.position = ball.position.add(direction.mul(overlap / 2));
-        		other.position = other.position.sub(direction.mul(overlap / 2));
-        	}
-        }
-
-        const velocity = ball.position.sub(ball.last_position);
-
-        ball.last_position = ball.position;
-     	ball.position = ball.position.add(velocity.add(ball.force.mul(delta_time)).div(friction));
-      	ball.force = .new(0, 4);
-    }
-
     Text.from_string(&state.font, std.fmt.allocPrint(state.arena.allocator(), "FPS: {d}", .{state.fps}) catch unreachable, 20, .new(0, 0)).draw(&state.ctx, Color.from_hex(0x00ff1aff));
+
+    const text = Text.from_string(&state.font, state.text.items, 20, .new(0, 32));
+    const mask_shape = Shape.rect(.new(0, 30), .new(100, 30 + text.size.y + 4)).rounded(8, 8, 8, 8);
+    mask_shape.draw(&state.ctx, Color.RED);
+    state.ctx.pushMask(mask_shape);
+    text.draw(&state.ctx, Color.WHITE);
+
+    const cursor_left = @min(state.cursor_x, text.size.x);
+    const cursor_right = @max(state.cursor_x, text.size.x + 2);
+
+    Shape.rect(.new(cursor_left, 30 - 4), .new(cursor_right, 30 + text.size.y + 4)).draw(&state.ctx, Color.from_hex(0x00ff1a66));
+    Shape.rect(.new(text.size.x, 30 - 4), .new(text.size.x + 2, 30 + text.size.y + 4)).draw(&state.ctx, Color.from_hex(0x00ff1aff));
+    state.ctx.popMask();
+
+    if (now.since(state.last_input_time) > std.time.ns_per_ms * 200) {
+    	state.cursor_target_x = text.size.x;
+    }
+    state.cursor_x += (state.cursor_target_x - state.cursor_x) * 15 * delta_time;
 
     state.ctx.endDrawing();
 }
@@ -151,6 +125,7 @@ pub fn main() void {
         .init_cb = init,
         .frame_cb = frame,
         .cleanup_cb = cleanup,
+        .event_cb = event,
         .swap_interval = 1,
         .width = 800,
         .height = 600,
