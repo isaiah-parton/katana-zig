@@ -26,8 +26,8 @@ const state = struct {
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     var arena: std.heap.ArenaAllocator = .init(gpa.allocator());
     var text: std.ArrayList(u8) = undefined;
-    var cursor_x: f32 = 0;
-    var cursor_target_x: f32 = 0;
+    var cursor_pos: math.Vec2 = math.Vec2.new(0, 0);
+    var cursor_target_pos: math.Vec2 = math.Vec2.new(0, 0);
     var last_input_time: std.time.Instant = undefined;
 };
 
@@ -75,6 +75,8 @@ export fn event(p: [*c]const sapp.Event) void {
 		.KEY_DOWN => {
 			if (e.key_code == .BACKSPACE) {
 				_ = state.text.pop();
+			} else if (e.key_code == .ENTER) {
+				state.text.append(state.gpa.allocator(), '\n') catch unreachable;
 			}
 		},
 		else => {}
@@ -93,40 +95,58 @@ export fn frame() void {
 
     state.ctx.beginDrawing();
 
-    Text.from_string(&state.font, std.fmt.allocPrint(state.arena.allocator(), "FPS: {d}", .{state.fps}) catch unreachable, 20, .new(0, 0)).draw(&state.ctx, Color.from_hex(0x00ff1aff));
-
-    const text = Text.from_string(&state.font, state.text.items, 20, .new(0, 32));
-    const mask_shape = Shape.rect(.new(0, 30), .new(300, 30 + text.size.y + 4)).rounded(8, 8, 8, 8);
-    mask_shape.glow(100).draw(&state.ctx, Color.BLACK);
-    mask_shape.draw(&state.ctx, Color.from_hex(0x4b4b4bff));
-    state.ctx.pushMask(mask_shape);
-    text.draw(&state.ctx, Color.WHITE);
-
-    const cursor_left = @min(state.cursor_x, text.size.x);
-    const cursor_right = @max(state.cursor_x, text.size.x + 2);
-
-    Shape.rect(.new(cursor_left, 30 - 4), .new(cursor_right, 30 + text.size.y + 4)).draw(&state.ctx, Color.from_hex(0x00ff1a66));
-    Shape.rect(.new(text.size.x, 30 - 4), .new(text.size.x + 2, 30 + text.size.y + 4)).draw(&state.ctx, Color.from_hex(0x00ff1aff));
-    state.ctx.popMask();
-
-    if (now.since(state.last_input_time) > std.time.ns_per_ms * 200) {
-    	state.cursor_target_x = text.size.x;
+    {
+	    var text = Text.init(.new(0, 0), state.arena.allocator());
+	    text.write_string(std.fmt.allocPrint(state.arena.allocator(), "FPS: {d}", .{state.fps}) catch unreachable, &state.font, 20) catch unreachable;
+	    text.draw(&state.ctx, Color.from_hex(0x00ff1aff));
     }
-    state.cursor_x += (state.cursor_target_x - state.cursor_x) * 15 * delta_time;
 
     {
-    	const origin = math.Vec2.new(sapp.widthf() / 2, sapp.heightf() / 2);
+    	var text = Text.init(.new(0, 32), state.arena.allocator());
+     	text.write_string(state.text.items, &state.font, 20) catch unreachable;
+	    text.draw(&state.ctx, Color.WHITE);
+
+	    Shape.rect(
+				.new(state.cursor_pos.x, state.cursor_pos.y - 4),
+				.new(state.cursor_pos.x + 2, state.cursor_pos.y + text.size.y + 4)
+			)
+			.draw(&state.ctx, Color.from_hex(0x00ff1aff));
+
+		if (text.glyphs.getLastOrNull()) |glyph| {
+	    	state.cursor_target_pos = glyph.position;
+		}
+	    state.cursor_pos = state.cursor_pos.add(state.cursor_target_pos.sub(state.cursor_pos).scale(25 * delta_time));
+    }
+
+    const origin = math.Vec2.new(sapp.widthf() / 2, sapp.heightf() / 2);
+    {
     	var shape = Shape.path(.{ .origin = origin.add(math.Vec2.new(0, -100)), .allocator = state.arena.allocator() });
      	shape.lineTo(origin.add(math.Vec2.new(-100, 0)));
-      	// shape.quadTo(origin.add(math.Vec2.new(-100, 100)), origin.add(math.Vec2.new(0, 80)));
      	shape.lineTo(origin.add(math.Vec2.new(0, 100)));
      	shape.lineTo(origin.add(math.Vec2.new(100, 0)));
      	shape.close();
-      	shape.glow(200).draw(&state.ctx, Color.WHITE);
       	shape.draw(&state.ctx, Color.WHITE);
     }
 
+    {
+    	var shape = Shape.path(.{ .origin = origin.add(math.Vec2.new(0, -110)), .allocator = state.arena.allocator() });
+     	shape.lineTo(origin.add(math.Vec2.new(-110, 0)));
+     	shape.lineTo(origin.add(math.Vec2.new(0, 110)));
+     	shape.lineTo(origin.add(math.Vec2.new(110, 0)));
+     	shape.close();
+      	shape.outline(1).draw(&state.ctx, Color.WHITE);
+    }
+
+    {
+   		var text = Text.init(origin, state.arena.allocator());
+    	text.write_string("CONNECT", &state.font, 24) catch unreachable;
+     	text.translate(.new(0.5, 0.5));
+	    text.draw(&state.ctx, Color.BLACK);
+    }
+
     state.ctx.endDrawing();
+
+    _ = state.arena.reset(.retain_capacity);
 }
 
 export fn cleanup() void {
