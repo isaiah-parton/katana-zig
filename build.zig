@@ -34,18 +34,31 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    const dep_msdfgen = b.dependency("msdfgen", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const dep_zstdbi = b.dependency("zstbi", .{});
 
-    const imports: []const std.Build.Module.Import = &.{ .{
-        .name = "sokol",
-        .module = dep_sokol.module("sokol"),
-    }, .{
-        .name = "zmath",
-        .module = dep_zmath.module("root"),
-    }, .{
-        .name = "zstbi",
-        .module = dep_zstdbi.module("root"),
-    } };
+    const imports: []const std.Build.Module.Import = &.{
+	    .{
+	        .name = "sokol",
+	        .module = dep_sokol.module("sokol"),
+	    },
+		.{
+	        .name = "zmath",
+	        .module = dep_zmath.module("root"),
+	    },
+		.{
+	        .name = "zstbi",
+	        .module = dep_zstdbi.module("root"),
+	    },
+		.{
+	        .name = "msdfgen",
+	        .module = dep_msdfgen.module("msdfgen"),
+	    }
+    };
 
     const lib_mod = b.createModule(.{ .root_source_file = b.path("src/root.zig"), .target = target, .optimize = optimize, .imports = imports });
 

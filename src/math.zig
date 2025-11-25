@@ -21,6 +21,10 @@ pub const Rect = struct {
 
 	const Self = @This();
 
+	pub fn zero() Self {
+		return Self{ .left = 0.0, .top = 0.0, .right = 0.0, .bottom = 0.0 };
+	}
+
 	pub fn new(left: f32, top: f32, right: f32, bottom: f32) Self {
 		return Self{ .left = left, .top = top, .right = right, .bottom = bottom };
 	}

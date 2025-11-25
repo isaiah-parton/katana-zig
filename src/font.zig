@@ -2,25 +2,70 @@ const math = @import("math.zig");
 const std = @import("std");
 const zstbi = @import("zstbi");
 const json = @import("std").json;
+const msdfgen = @import("msdfgen");
 
 const Self = @This();
 
-const Rect = struct {
-	left: f32,
-	top: f32,
-	right: f32,
-	bottom: f32,
+var freetype_handle: msdfgen.FreetypeHandle = .init() catch |e| std.debug.print("Error initializing freetype: {}\n", .{e});
 
-	pub fn zero() Rect {
-		return Rect{ .left = 0, .top = 0, .right = 0, .bottom = 0 };
+const FontSource = struct {
+	font: msdfgen.FontHandle,
+	charset: msdfgen.Charset,
+	geometry: msdfgen.FontGeometry,
+
+	pub fn init(path: []const u8) !@This() {
+		const font = try freetype_handle.loadFont(path);
+		const charset = try msdfgen.Charset.ascii();
+		var geometry = try msdfgen.FontGeometry.init();
+		const glyphs_loaded = geometry.loadCharset(font, 1.0, charset);
+		if (!glyphs_loaded) {
+			return error.EmptyFont;
+		}
+		const glyphs = geometry.getGlyphs();
+		for (0..glyphs.count) |i| {
+			glyphs.setEdgeColoring(i, .by_distance, 3.0, 0);
+		}
+		return .{
+			.font = font,
+			.charset = charset,
+			.geometry = geometry,
+		};
+	}
+
+	pub fn generateSDF(self: *@This(), unicode: u21) ![]f32 {
+		var shape: msdfgen.Shape = undefined;
+		if (self.font.loadGlyph(&shape, unicode, .EM_NORMALIZED) == null) {
+			return error.GlyphNotFound;
+		}
+		const w: f32 = 64.0;
+		const h: f32 = 64.0;
+		var data = try std.heap.c_allocator.alloc(f32, w * h);
+		shape.generateMTSDF(.{
+			.data = &data,
+			.w = w,
+			.h = h,
+			.range = 2.0,
+			.sx = 1.0,
+			.sy = 1.0,
+			.dx = 0.0,
+			.dy = 0.0
+		});
+		return data;
+	}
+
+	pub fn deinit(self: *@This()) void {
+		self.font.deinit();
+		self.charset.deinit();
+		self.geometry.deinit();
+		self.* = undefined;
 	}
 };
 
 const Glyph = struct {
 	unicode: i32 = 0,
 	advance: f32 = 0,
-	atlasBounds: Rect = .zero(),
-	planeBounds: Rect = .zero(),
+	atlasBounds: math.Rect = .zero(),
+	planeBounds: math.Rect = .zero(),
 };
 
 firstGlyph: i32 = 0,

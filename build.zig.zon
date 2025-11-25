@@ -52,6 +52,10 @@
             .url = "git+https://github.com/zig-gamedev/zstbi#2c4b3100ccb7aed90ecc9439030899764e2a8d47",
             .hash = "zstbi-0.11.0-dev-L0Ea_yaWBwAHwFoCuyjkFyaiSsbjt4UOrkntR0c_nmzz",
         },
+        .msdfgen = .{
+            .url = "git+https://github.com/vinterbell/msdfgen.git#0b137b8a9e361020aaa8eb38fac607d9ab3e6aff",
+            .hash = "msdfgen-1.12.1-Eg9vehdmCQCz80xeYeISze0rmzmp-67WZavrtPNH1y1K",
+        },
     },
     .paths = .{
         "build.zig",
