@@ -39,6 +39,7 @@ const Variant = union(Kind) {
 	path: struct {
 		origin: math.Vec2,
 		points: std.ArrayList(math.Vec2),
+		allocator: std.mem.Allocator,
 	},
 	msdf: struct {
 		top_left: math.Vec2,
@@ -51,7 +52,7 @@ const Variant = union(Kind) {
 variant: Variant,
 image: ?math.Rect = null,
 width: f32 = 0,
-outlined: bool = false,
+outline_type: u32 = 0,
 
 pub fn circle(center: math.Vec2, radius: f32) Self {
     return Self{
@@ -107,7 +108,7 @@ pub fn msdf(top_left: math.Vec2, bottom_right: math.Vec2, source_top_left: math.
 
 const PathOptions = struct {
 	origin: math.Vec2,
-	allocator: std.mem.Allocator = std.heap.page_allocator,
+	allocator: std.mem.Allocator,
 };
 
 pub fn path(opts: PathOptions) Self {
@@ -115,7 +116,8 @@ pub fn path(opts: PathOptions) Self {
 		.variant = .{
 			.path = .{
 				.origin = opts.origin,
-				.points = std.ArrayList(math.Vec2).init(opts.allocator)
+				.points = std.ArrayList(math.Vec2).initCapacity(opts.allocator, 8) catch unreachable,
+				.allocator = opts.allocator
 			}
 		}
 	};
@@ -123,16 +125,18 @@ pub fn path(opts: PathOptions) Self {
 
 pub fn lineTo(self: *Self, point: math.Vec2) void {
 	const last_point = self.variant.path.points.getLastOrNull() orelse self.variant.path.origin;
-	self.variant.path.points.append(last_point) catch unreachable;
-	self.variant.path.points.append(last_point.lerp(point, 0.5)) catch unreachable;
-	self.variant.path.points.append(point) catch unreachable;
+	const allocator = self.variant.path.allocator;
+	self.variant.path.points.append(allocator, last_point) catch unreachable;
+	self.variant.path.points.append(allocator, last_point.lerp(point, 0.5)) catch unreachable;
+	self.variant.path.points.append(allocator, point) catch unreachable;
 }
 
 pub fn quadTo(self: *Self, control: math.Vec2, point: math.Vec2) void {
 	const last_point = self.variant.path.points.getLastOrNull() orelse self.variant.path.origin;
-	self.variant.path.points.append(last_point) catch unreachable;
-	self.variant.path.points.append(control) catch unreachable;
-	self.variant.path.points.append(point) catch unreachable;
+	const allocator = self.variant.path.allocator;
+	self.variant.path.points.append(allocator, last_point) catch unreachable;
+	self.variant.path.points.append(allocator, control) catch unreachable;
+	self.variant.path.points.append(allocator, point) catch unreachable;
 }
 
 pub fn close(self: *Self) void {
@@ -148,130 +152,110 @@ pub fn rounded(self: Self, top_left: f32, top_right: f32, bottom_left: f32, bott
 pub fn outline(self: Self, width: f32) Self {
 	var new = self;
 	new.width = width;
-	new.outlined = true;
+	new.outline_type = 1;
+	return new;
+}
+
+pub fn glow(self: Self, radius: f32) Self {
+	var new = self;
+	new.width = radius;
+	new.outline_type = 4;
 	return new;
 }
 
 pub fn draw(self: Self, ctx: *Context, paint: anytype) void {
+	_ = self.drawEx(ctx, paint);
+}
+
+const DrawResult = struct {
+	index: u32,
+	bounds: math.Rect,
+};
+
+pub fn drawEx(self: Self, ctx: *Context, paint: anytype) DrawResult {
 	if (!std.meta.eql(ctx.transform_stack.getLastOrNull(), ctx.last_transform)) {
 		const transform = ctx.transform_stack.getLastOrNull().?;
 		ctx.transforms.array.append(ctx.allocator, shd.Transform{.matrix = @bitCast(transform)}) catch unreachable;
 		ctx.last_transform = transform;
 	}
 	const transform_index = ctx.transforms.array.items.len - 1;
-	var tex_min = math.Vec2.zero();
-	var tex_max = math.Vec2.zero();
+
+	var shape_spatial: shd.ShapeSpatial = .{
+		.quad_min = math.Vec2.zero(),
+		.quad_max = math.Vec2.zero(),
+		.tex_min = math.Vec2.zero(),
+		.tex_max = math.Vec2.zero(),
+		.xform = @intCast(transform_index)
+	};
+
 	if (self.image) |sourceRect| {
-		tex_min = .{
+		shape_spatial.tex_min = .{
 			.x = sourceRect.left / @as(f32, @floatFromInt(ctx.paint_atlas.width)),
 			.y = sourceRect.top / @as(f32, @floatFromInt(ctx.paint_atlas.height))
 		};
-		tex_max = .{
+		shape_spatial.tex_max = .{
 			.x = sourceRect.right / @as(f32, @floatFromInt(ctx.paint_atlas.width)),
 			.y = sourceRect.bottom / @as(f32, @floatFromInt(ctx.paint_atlas.height))
 		};
 	}
-	if (@hasDecl(@TypeOf(paint), "shaderPaint")) {
-		ctx.paints.array.append(ctx.allocator, paint.shaderPaint()) catch unreachable;
-	} else {
-		unreachable;
+
+	var paint_index: u32 = 0;
+	if (@TypeOf(paint) != @TypeOf(null)) {
+		if (@hasDecl(@TypeOf(paint), "shaderPaint")) {
+			paint_index = @intCast(ctx.paints.array.items.len);
+			ctx.paints.array.append(ctx.allocator, paint.shaderPaint()) catch unreachable;
+		} else {
+			@panic("Invalid paint provided!");
+		}
 	}
+
+	var shape: shd.Shape = .{
+		.kind = @intFromEnum(self.variant),
+		.mode = 0,
+		.next = 0,
+		.cv0 = math.Vec2.zero(),
+		.cv1 = math.Vec2.zero(),
+		.cv2 = math.Vec2.zero(),
+		.radius = .{0, 0, 0, 0},
+		.width = 0,
+		.start = 0,
+		.count = 0,
+		.stroke = 0,
+		.paint = paint_index,
+	};
+
 	switch (self.variant) {
 		Variant.none => {},
 		Variant.circle => |info| {
-			ctx.shape_spatials.array.append(ctx.allocator, .{
-				.quad_min = info.center.sub(info.radius),
-				.quad_max = info.center.add(info.radius),
-				.tex_min = tex_min,
-				.tex_max = tex_max,
-				.xform = @intCast(transform_index)
-			}) catch unreachable;
-			ctx.shapes.array.append(ctx.allocator,
-				.{
-					.kind = @intFromEnum(self.variant),
-					.mode = 0,
-					.next = 0,
-					.cv0 = info.center,
-					.cv1 = math.Vec2.zero(),
-					.cv2 = math.Vec2.zero(),
-					.radius = .{info.radius, 0, 0, 0},
-					.width = 0,
-					.start = 0,
-					.count = 0,
-					.stroke = 0,
-					.paint = @intCast(ctx.paints.array.items.len - 1),
-				}
-			) catch unreachable;
+			shape_spatial.quad_min = info.center.sub(info.radius);
+			shape_spatial.quad_max = info.center.add(info.radius);
+			shape.cv0 = info.center;
+			shape.radius[0] = info.radius;
 		},
 		Variant.rect => |info| {
-			ctx.shape_spatials.array.append(ctx.allocator, .{
-				.quad_min = info.top_left,
-				.quad_max = info.bottom_right,
-				.tex_min = tex_min,
-				.tex_max = tex_max,
-				.xform = @intCast(transform_index)
-			}) catch unreachable;
-			ctx.shapes.array.append(ctx.allocator, .{
-				.kind = @intFromEnum(self.variant),
-				.mode = 0,
-				.next = 0,
-				.cv0 = info.top_left,
-				.cv1 = info.bottom_right,
-				.cv2 = math.Vec2.zero(),
-				.radius = info.corner_radii,
-				.width = self.width,
-				.start = 0,
-				.count = 0,
-				.stroke = @intFromBool(self.outlined),
-				.paint = @intCast(ctx.paints.array.items.len - 1)
-			}) catch unreachable;
+			shape_spatial.quad_min = info.top_left;
+			shape_spatial.quad_max = info.bottom_right;
+			shape.cv0 = info.top_left;
+			shape.cv1 = info.bottom_right;
+			shape.radius = info.corner_radii;
+			shape.width = self.width;
+			shape.stroke = @intCast(self.outline_type);
 		},
 		Variant.arc => {},
 		Variant.line => |points| {
-			ctx.shape_spatials.array.append(ctx.allocator, .{
-				.quad_min = math.Vec2.min(.{points[0], points[1]}).sub(self.width),
-				.quad_max = math.Vec2.max(.{points[0], points[1]}).add(self.width),
-				.tex_min = tex_min,
-				.tex_max = tex_max,
-				.xform = @intCast(transform_index),
-			}) catch unreachable;
-			ctx.shapes.array.append(ctx.allocator, .{
-				.kind = @intFromEnum(self.variant),
-				.mode = 0,
-				.next = 0,
-				.cv0 = points[0],
-				.cv1 = points[1],
-				.cv2 = math.Vec2.zero(),
-				.radius = .{0, 0, 0, 0},
-				.width = self.width / 2,
-				.start = 0,
-				.count = 0,
-				.stroke = 0,
-				.paint = @intCast(ctx.paints.array.items.len - 1)
-			}) catch unreachable;
+			shape_spatial.quad_min = math.Vec2.min(.{points[0], points[1]}).sub(self.width);
+			shape_spatial.quad_max = math.Vec2.max(.{points[0], points[1]}).add(self.width);
+			shape.cv0 = points[0];
+			shape.cv1 = points[1];
+			shape.width = self.width / 2;
 		},
 		Variant.bezier => |points| {
-			ctx.shape_spatials.array.append(ctx.allocator, .{
-				.quad_min = math.Vec2.min(.{points[0], points[1], points[2]}).sub(self.width),
-				.quad_max = math.Vec2.max(.{points[0], points[1], points[2]}).add(self.width),
-				.tex_min = tex_min,
-				.tex_max = tex_max,
-				.xform = @intCast(transform_index),
-			}) catch unreachable;
-			ctx.shapes.array.append(ctx.allocator, .{
-				.kind = @intFromEnum(self.variant),
-				.mode = 0,
-				.next = 0,
-				.cv0 = points[0],
-				.cv1 = points[1],
-				.cv2 = points[2],
-				.radius = .{0, 0, 0, 0},
-				.width = self.width / 2,
-				.start = 0,
-				.count = 0,
-				.stroke = 0,
-				.paint = @intCast(ctx.paints.array.items.len - 1)
-			}) catch unreachable;
+			shape_spatial.quad_min = math.Vec2.min(.{points[0], points[1], points[2]}).sub(self.width);
+			shape_spatial.quad_max = math.Vec2.max(.{points[0], points[1], points[2]}).add(self.width);
+			shape.cv0 = points[0];
+			shape.cv1 = points[1];
+			shape.cv2 = points[2];
+			shape.width = self.width / 2;
 		},
 		Variant.path => |info| {
 			var min_pos = math.Vec2.inf();
@@ -282,50 +266,60 @@ pub fn draw(self: Self, ctx: *Context, paint: anytype) void {
 				max_pos = math.Vec2.max(.{max_pos, point});
 				ctx.vertices.array.append(ctx.allocator, point) catch unreachable;
 			}
-			ctx.shape_spatials.array.append(ctx.allocator, .{
-				.quad_min = min_pos.sub(self.width),
-				.quad_max = max_pos.add(self.width),
-				.tex_min = tex_min,
-				.tex_max = tex_max,
-				.xform = @intCast(transform_index),
-			}) catch unreachable;
-			ctx.shapes.array.append(ctx.allocator, .{
-				.kind = @intFromEnum(self.variant),
-				.mode = 0,
-				.next = 0,
-				.cv0 = math.Vec2.zero(),
-				.cv1 = math.Vec2.zero(),
-				.cv2 = math.Vec2.zero(),
-				.radius = .{0, 0, 0, 0},
-				.width = self.width,
-				.start = @intCast(first_vertex),
-				.count = @intCast(@divFloor(info.points.items.len, 3)),
-				.stroke = @intFromBool(self.outlined),
-				.paint = @intCast(ctx.paints.array.items.len - 1)
-			}) catch unreachable;
+			shape_spatial.quad_min = min_pos.sub(self.width);
+			shape_spatial.quad_max = max_pos.add(self.width);
+			shape.width = self.width;
+			shape.start = @intCast(first_vertex);
+			shape.count = @intCast(@divFloor(info.points.items.len, 3));
+			shape.stroke = @intCast(self.outline_type);
 		},
 		Variant.msdf => |info| {
-			ctx.shape_spatials.array.append(ctx.allocator, .{
-				.quad_min = info.top_left,
-				.quad_max = info.bottom_right,
-				.tex_min = info.source_top_left.div(2048),
-				.tex_max = info.source_bottom_right.div(2048),
-				.xform = @intCast(transform_index),
-			}) catch unreachable;
-			ctx.shapes.array.append(ctx.allocator, .{
-				.kind = @intFromEnum(self.variant),
-				.mode = 0,
-				.next = 0,
-				.cv0 = math.Vec2.zero(),
-				.cv1 = math.Vec2.zero(),
-				.cv2 = math.Vec2.zero(),
-				.radius = .{0, 0, 0, 0},
-				.width = self.width,
-				.start = 0,
-				.count = 0,
-				.stroke = @intFromBool(self.outlined),
-				.paint = @intCast(ctx.paints.array.items.len - 1)
-			}) catch unreachable;
+			shape_spatial.quad_min = info.top_left;
+			shape_spatial.quad_max = info.bottom_right;
+			shape_spatial.tex_min = info.source_top_left.div(2048);
+			shape_spatial.tex_max = info.source_bottom_right.div(2048);
+			shape.width = self.width;
+			shape.stroke = @intCast(self.outline_type);
 		}
 	}
+
+	// Apply mask
+	if (ctx.mask_stack.getLastOrNull()) |mask| {
+		shape.next = @intCast(mask.index);
+		const left = @max(0, mask.top_left.x - shape_spatial.quad_min.x);
+		const top = @max(0, mask.top_left.y - shape_spatial.quad_min.y);
+		const right = @max(0, shape_spatial.quad_max.x - mask.bottom_right.x);
+		const bottom = @max(0, shape_spatial.quad_max.y - mask.bottom_right.y);
+		const source_factor = shape_spatial.tex_max.sub(shape_spatial.tex_min).div(shape_spatial.quad_max.sub(shape_spatial.quad_min));
+		shape_spatial.tex_min.x += left * source_factor.x;
+		shape_spatial.tex_min.y += top * source_factor.y;
+		shape_spatial.tex_max.x -= right * source_factor.x;
+		shape_spatial.tex_max.y -= bottom * source_factor.y;
+		shape_spatial.quad_min.x += left;
+		shape_spatial.quad_min.y += top;
+		shape_spatial.quad_max.x -= right;
+		shape_spatial.quad_max.y -= bottom;
+	}
+
+	if (shape.stroke == 4) {
+		shape_spatial.quad_min.x -= shape.width;
+		shape_spatial.quad_min.y -= shape.width;
+		shape_spatial.quad_max.x += shape.width;
+		shape_spatial.quad_max.y += shape.width;
+	}
+
+	if (shape_spatial.quad_min.x >= shape_spatial.quad_max.x or shape_spatial.quad_min.y >= shape_spatial.quad_max.y) {
+		return .{
+			.index = 0,
+			.bounds = .new(shape_spatial.quad_min.x, shape_spatial.quad_min.y, shape_spatial.quad_min.x, shape_spatial.quad_min.y)
+		};
+	}
+
+	ctx.shape_spatials.array.append(ctx.allocator, shape_spatial) catch unreachable;
+	ctx.shapes.array.append(ctx.allocator, shape) catch unreachable;
+
+	return .{
+		.index = @intCast(ctx.shapes.array.items.len - 1),
+		.bounds = .new(shape_spatial.quad_min.x, shape_spatial.quad_min.y, shape_spatial.quad_max.x, shape_spatial.quad_max.y)
+	};
 }

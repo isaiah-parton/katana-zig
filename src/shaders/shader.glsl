@@ -286,7 +286,7 @@ float contour(float dist, float bias, vec2 texcoord) {
 }
 
 float sample_msdf(vec2 uv, float bias) {
-	vec3 msd = texture(sampler2D(msdf_texture, msdf_sampler), uv).rgb;
+	vec3 msd = textureLod(sampler2D(msdf_texture, msdf_sampler), uv, 0.0).rgb;
 	float dist = median(msd.r, msd.g, msd.b);
 	return contour(dist, bias, uv);
 }
@@ -319,6 +319,18 @@ vec3 hsl_to_rgb(float h, float s, float l) {
         b = hue_to_rgb(p, q, h - 1.0 / 3.0);
     }
     return vec3(r, g, b);
+}
+
+const float pi = atan(1.0) * 4.0;
+const int samples = 8;
+const float sigma = float(samples) * 0.25;
+
+float pow2(float x) {
+	return x * x;
+}
+
+float gaussian(vec2 i) {
+    return 1.0 / (2.0 * pi * pow2(sigma)) * exp(-((pow2(i.x) + pow2(i.y)) / (2.0 * pow2(sigma))));
 }
 
 // Shape distance function (simplified - add more cases as needed)
@@ -357,6 +369,9 @@ float sd_shape(Shape shape, vec2 pos) {
             } else if (a.x < xmin && b.x < xmin && c.x < xmin) {
                 skip = true;
             }
+            if (s * d >= 0.0) {
+            	d = min(d, sd_line(p, a, c));
+            }
             if (!skip) {
                 d = min(d, sd_bezier(p, a, b, c));
             }
@@ -370,7 +385,7 @@ float sd_shape(Shape shape, vec2 pos) {
                 }
             }
         }
-        d = d * s;
+        d = d * s - 0.5;
     } else if (shape.kind == 7u) {
     	// MSDF
     	// Supersampling parameters

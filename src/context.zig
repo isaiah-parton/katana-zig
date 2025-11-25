@@ -7,6 +7,7 @@ const sglue = sokol.glue;
 const sapp = sokol.app;
 const math = @import("math.zig");
 const Color = @import("color.zig");
+const Shape = @import("shape.zig");
 
 pub const MAX_SHAPES = 2048;
 pub const MAX_TRANSFORMS = 512;
@@ -123,6 +124,7 @@ fn Buffer(elem: type) type {
 
 const Self = @This();
 
+clear_color: Color = .BLACK,
 bindings: sg.Bindings = .{},
 pipeline: sg.Pipeline = .{},
 // Shapes
@@ -140,11 +142,14 @@ vertices: Buffer(math.Vec2),
 msdf_atlas: Atlas,
 // Atlas for user images
 paint_atlas: Atlas,
+// Masks
+mask_stack: std.ArrayList(Mask),
 
 allocator: std.mem.Allocator,
 
 pub fn init(allocator: std.mem.Allocator) Self {
     var self = Self{
+<<<<<<< HEAD
         .shape_spatials = Buffer(shd.ShapeSpatial).init(allocator, "Shape Spatials", MAX_SHAPES),
         .shapes = Buffer(shd.Shape).init(allocator, "Shapes", MAX_SHAPES),
         .transforms = Buffer(shd.Transform).init(allocator, "Transforms", MAX_TRANSFORMS),
@@ -154,6 +159,18 @@ pub fn init(allocator: std.mem.Allocator) Self {
         .msdf_atlas = Atlas.init(allocator, "MSDF", TEXTURE_SIZE),
         .paint_atlas = Atlas.init(allocator, "Paint", TEXTURE_SIZE),
         .allocator = allocator,
+=======
+    	.shape_spatials = Buffer(shd.ShapeSpatial).init(allocator, "Shape Spatials", MAX_SHAPES),
+    	.shapes = Buffer(shd.Shape).init(allocator, "Shapes", MAX_SHAPES),
+    	.transforms = Buffer(shd.Transform).init(allocator, "Transforms", MAX_TRANSFORMS),
+    	.paints = Buffer(shd.Paint).init(allocator, "Paints", MAX_PAINTS),
+    	.vertices = Buffer(math.Vec2).init(allocator, "Vertices", MAX_VERTICES),
+    	.transform_stack = std.ArrayList(math.Mat4).initCapacity(allocator, 64) catch unreachable,
+    	.mask_stack = std.ArrayList(Mask).initCapacity(allocator, 8) catch unreachable,
+    	.msdf_atlas = Atlas.init(allocator, "MSDF", TEXTURE_SIZE),
+    	.paint_atlas = Atlas.init(allocator, "Paint", TEXTURE_SIZE),
+    	.allocator = allocator,
+>>>>>>> e8c11f06670a68c8cd25a7a348c6abb5b40cd2b0
     };
 
     self.bindings.views[shd.VIEW_msdf_texture] = sg.makeView(.{ .texture = .{ .image = self.msdf_atlas.image } });
@@ -184,6 +201,22 @@ pub fn init(allocator: std.mem.Allocator) Self {
     self.pipeline = sg.makePipeline(pipeline_desc);
 
     return self;
+}
+
+const Mask = struct {
+	index: u32,
+	top_left: math.Vec2,
+	bottom_right: math.Vec2,
+};
+
+pub fn pushMask(self: *Self, shape: Shape) void {
+	const result = shape.drawEx(self, null);
+	self.shapes.array.items[result.index].mode = 2;
+	self.mask_stack.append(self.allocator, Mask{.index = result.index, .top_left = result.bounds.topLeft(), .bottom_right = result.bounds.bottomRight()}) catch unreachable;
+}
+
+pub fn popMask(self: *Self) void {
+	_ = self.mask_stack.pop();
 }
 
 pub fn pushMatrix(self: *Self) void {
@@ -246,8 +279,13 @@ pub fn endDrawing(self: *Self) void {
     }
     self.uploadData();
 
+<<<<<<< HEAD
     var pass_action = sg.PassAction{};
     pass_action.colors[0] = .{ .load_action = .CLEAR, .clear_value = .{ .r = 0.02, .g = 0.05, .b = 0.1, .a = 1 } };
+=======
+	var pass_action = sg.PassAction{};
+    pass_action.colors[0] = .{.load_action = .CLEAR, .clear_value = @bitCast(self.clear_color.normalize())};
+>>>>>>> e8c11f06670a68c8cd25a7a348c6abb5b40cd2b0
 
     const vertex_params = shd.VsParams{ .screen_size = .new(@floatFromInt(sapp.width()), @floatFromInt(sapp.height())) };
     const fragment_params = shd.FsParams{ .time = 0.0, .output_gamma = 1.0, .text_unit_range = 0.001, .text_in_bias = 0.0, .text_out_bias = 0.0 };
